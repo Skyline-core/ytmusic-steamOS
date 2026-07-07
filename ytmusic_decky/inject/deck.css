@@ -1,0 +1,2398 @@
+/* ==========================================================================
+   YouTube Music Deck — Tema táctil (acento dinámico por portada)
+   ========================================================================== */
+
+:root {
+  --deck-bg: #08080a;
+  --deck-bg-mid: #0c0c0e;
+  --deck-bg-glow: #101014;
+  --deck-glass: rgba(18, 16, 24, 0.88);
+  --deck-glass-light: rgba(24, 22, 30, 0.55);
+  --deck-accent: #8a8a9a;
+  --deck-accent-strong: #6a6a7a;
+  --deck-accent-dim: rgba(138, 138, 154, 0.35);
+  --deck-accent-glow: rgba(100, 100, 120, 0.45);
+  --deck-accent-rgb: 100, 100, 120;
+  --deck-bar-start-rgb: 28, 26, 34;
+  --deck-bar-end-rgb: 14, 12, 18;
+  --deck-chip-end-rgb: 40, 38, 48;
+  --deck-panel-rgb: 14, 12, 18;
+  --deck-hero-mid: #242228;
+  --deck-hero-dark: #100e12;
+  --deck-play-gradient-start: #d8d8e0;
+  --deck-play-icon: #16141a;
+  --deck-text: #ffffff;
+  --deck-text-muted: rgba(255, 255, 255, 0.56);
+  --deck-radius: 18px;
+  --deck-radius-pill: 999px;
+  --deck-gap: 10px;
+  --deck-col-gap: 6px;
+  --deck-content-pad: 12px;
+  --deck-nav-w: 300px;
+  --deck-touch: 60px;
+  --deck-touch-xl: 80px;
+  --deck-player-h: 112px;
+  --deck-ui-scale: 1;
+  --deck-player-progress-inset-left: 42px;
+  --deck-player-progress-inset-right: 42px;
+  --deck-player-progress-knob: 18px;
+  --deck-player-progress-track: 3px;
+  --deck-player-progress-overflow: 9px;
+  /* Tipografía táctil (7") — px fijos: YTM usa html 10px */
+  --deck-fs-nav: 18px;
+  --deck-fs-chip: 16px;
+  --deck-fs-body: 15px;
+  --deck-fs-meta: 15px;
+  --deck-fs-item-title: 17px;
+  --deck-fs-section: 24px;
+  --deck-fs-strapline: 15px;
+  --deck-fs-btn: 16px;
+  --deck-fs-player-title: 17px;
+  --deck-fs-player-artist: 15px;
+  --deck-player-thumb: 68px;
+  --deck-volume-slider-w: 168px;
+  --deck-volume-slider-h: 32px;
+  --deck-volume-knob: 14px;
+  --deck-volume-track-inset: 7px;
+}
+
+/* Sustituir tokens morados de YTM (siempre usar acento Deck) */
+html[data-ytm-deck="1"],
+html[data-ytm-deck="1"] ytmusic-app,
+html[data-ytm-deck="1"] ytmusic-app-layout,
+html[data-ytm-deck="1"] #side-panel,
+html[data-ytm-deck="1"] ytmusic-player-bar,
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide {
+  --yt-spec-brand-background-solid: var(--deck-accent-strong) !important;
+  --yt-spec-brand-background-primary: var(--deck-accent) !important;
+  --yt-spec-icon-active-other: var(--deck-accent) !important;
+  --yt-spec-static-brand-red: var(--deck-accent-strong) !important;
+  --yt-spec-static-brand-white: var(--deck-accent) !important;
+  --ytmusic-theme-color: var(--deck-accent) !important;
+  --ytmusic-theme-main: var(--deck-accent) !important;
+  --paper-slider-active-color: var(--deck-accent-strong) !important;
+  --paper-slider-knob-color: #fff !important;
+  --paper-tab-content-selected: var(--deck-accent) !important;
+  --paper-tab-ink: var(--deck-accent) !important;
+  --paper-tabs-selection-bar-color: var(--deck-accent-strong) !important;
+  --ytmusic-menu-renderer-button-opacity: 1 !important;
+  --yt-endpoint-action-button-opacity: 1 !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-accent-dynamic,
+html[data-ytm-deck="1"].ytm-deck-accent-dynamic ytmusic-app,
+html[data-ytm-deck="1"].ytm-deck-accent-dynamic #side-panel {
+  --yt-spec-text-primary: var(--deck-text) !important;
+  --yt-spec-text-secondary: var(--deck-text-muted) !important;
+  --yt-spec-text-disabled: rgba(255, 255, 255, 0.38) !important;
+  --yt-spec-icon-inactive: var(--deck-text-muted) !important;
+}
+
+/* Evitar overflow horizontal (barra cortada) */
+html[data-ytm-deck="1"] {
+  overflow-x: hidden !important;
+  font-size: calc(14px * var(--deck-ui-scale, 1)) !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-large-ui ytmusic-app-layout {
+  --deck-touch: calc(60px * var(--deck-ui-scale, 1)) !important;
+  --deck-touch-xl: calc(80px * var(--deck-ui-scale, 1)) !important;
+}
+
+html[data-ytm-deck="1"] body {
+  font-size: calc(14px * var(--deck-ui-scale, 1)) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-app {
+  overflow: hidden !important;
+}
+
+/* Tokens de texto y pestañas: blanco neutro, sin lavanda de YTM */
+html[data-ytm-deck="1"] ytmusic-app,
+html[data-ytm-deck="1"] ytmusic-player-page,
+html[data-ytm-deck="1"] #side-panel,
+html[data-ytm-deck="1"] tp-yt-paper-tabs {
+  --yt-spec-text-primary: var(--deck-text) !important;
+  --yt-spec-text-secondary: var(--deck-text-muted) !important;
+  --yt-spec-text-disabled: rgba(255, 255, 255, 0.38) !important;
+  --yt-spec-icon-inactive: var(--deck-text-muted) !important;
+  --paper-tab-content-unselected: var(--deck-text-muted) !important;
+  --paper-tab-content: var(--deck-text-muted) !important;
+  --paper-tab-content-selected: var(--deck-accent) !important;
+  --paper-tab-ink: var(--deck-accent) !important;
+  --paper-tabs-selection-bar-color: var(--deck-accent-strong) !important;
+}
+
+/* ---- Fondo ---- */
+html[data-ytm-deck="1"],
+html[data-ytm-deck="1"] body,
+html[data-ytm-deck="1"] ytmusic-app {
+  background:
+    radial-gradient(ellipse 70% 55% at 12% 18%, rgba(var(--deck-accent-rgb), 0.16) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 45% at 88% 82%, rgba(var(--deck-chip-end-rgb), 0.12) 0%, transparent 45%),
+    linear-gradient(165deg, var(--deck-bg-glow) 0%, var(--deck-bg-mid) 50%, var(--deck-bg) 100%) !important;
+  color: var(--deck-text) !important;
+}
+
+/* Anular ambient de YTM en el fondo (solo usamos el color en acentos) */
+html[data-ytm-deck="1"] ytmusic-app-layout,
+html[data-ytm-deck="1"] #content,
+html[data-ytm-deck="1"] ytmusic-browse-response,
+html[data-ytm-deck="1"] .background-gradient,
+html[data-ytm-deck="1"] .browse-background,
+html[data-ytm-deck="1"] .gradient-container,
+html[data-ytm-deck="1"] ytmusic-app-layout::before,
+html[data-ytm-deck="1"] ytmusic-app-layout::after,
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-player-page,
+html[data-ytm-deck="1"].ytm-deck-playing #player-page,
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-app-layout #content {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+/* ---- Ocultar chrome ---- */
+html[data-ytm-deck="1"] ytmusic-masthead,
+html[data-ytm-deck="1"] #masthead-container,
+html[data-ytm-deck="1"] .search-box,
+html[data-ytm-deck="1"] ytmusic-search-box,
+html[data-ytm-deck="1"] ytmusic-cast-button,
+html[data-ytm-deck="1"] ytmusic-nav-bar ytmusic-cast-button,
+html[data-ytm-deck="1"] ytmusic-sign-in-renderer,
+html[data-ytm-deck="1"] .sign-in-link,
+html[data-ytm-deck="1"] ytmusic-guide-download-app-renderer,
+html[data-ytm-deck="1"] #guide-section-wrapper,
+html[data-ytm-deck="1"] #footer,
+html[data-ytm-deck="1"] #notification-center,
+html[data-ytm-deck="1"] .deck-hidden,
+/* Capas nativas de YTM que tapan el contenido */
+html[data-ytm-deck="1"] #mini-guide-background,
+html[data-ytm-deck="1"] #mini-guide,
+html[data-ytm-deck="1"] #nav-bar-background,
+html[data-ytm-deck="1"] #nav-bar-divider,
+html[data-ytm-deck="1"] #player-bar-background,
+html[data-ytm-deck="1"] ytmusic-content-update-chip,
+/* Cuadro negro / video flotante en browse (solo el reproductor, no toda la página) */
+html[data-ytm-deck="1"]:not(.ytm-deck-playing) ytmusic-player-page #player,
+html[data-ytm-deck="1"]:not(.ytm-deck-playing) ytmusic-player-page #player-container,
+html[data-ytm-deck="1"]:not(.ytm-deck-playing) ytmusic-player-page .video-stream,
+html[data-ytm-deck="1"]:not(.ytm-deck-playing) ytmusic-player-page #song-video,
+html[data-ytm-deck="1"]:not(.ytm-deck-playing) #movie_player,
+html[data-ytm-deck="1"]:not(.ytm-deck-playing) .video-ads,
+html[data-ytm-deck="1"]:not(.ytm-deck-playing) ytmusic-ad-slot-renderer,
+html[data-ytm-deck="1"]:not(.ytm-deck-playing) .ad-container {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Panel expandido colapsado en browse: no usar display:none (rompe apertura de YTM) */
+html[data-ytm-deck="1"]:not(.ytm-deck-playing) ytmusic-player-page,
+html[data-ytm-deck="1"]:not(.ytm-deck-playing) #player-page {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  clip: rect(0, 0, 0, 0) !important;
+  z-index: -1 !important;
+}
+
+/* ---- Grid principal: nav | contenido + player ---- */
+html[data-ytm-deck="1"] ytmusic-app-layout {
+  display: grid !important;
+  position: relative !important;
+  grid-template-columns: var(--deck-nav-w) minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) var(--deck-player-h) !important;
+  grid-template-areas:
+    "deck-nav deck-main"
+    "deck-player deck-player" !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  padding: var(--deck-gap) !important;
+  gap: var(--deck-gap) var(--deck-col-gap) !important;
+  --ytmusic-guide-width: 0px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-media-active ytmusic-app-layout {
+  grid-template-rows: minmax(0, 1fr) auto !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-media-active ytmusic-player-bar {
+  align-self: end !important;
+  margin-top: auto !important;
+}
+
+/* ---- Nav lateral: logo arriba + menú siempre visible ---- */
+html[data-ytm-deck="1"] ytmusic-nav-bar {
+  display: flex !important;
+  grid-area: deck-nav !important;
+  grid-row: 1 !important;
+  grid-column: 1 !important;
+  position: absolute !important;
+  top: var(--deck-gap) !important;
+  left: var(--deck-gap) !important;
+  width: var(--deck-nav-w) !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  pointer-events: none !important;
+  background: transparent !important;
+  border: none !important;
+  z-index: 6 !important;
+}
+
+/* Ocultar solo hamburguesa; conservar cuenta y ajustes en #button-bar */
+html[data-ytm-deck="1"] ytmusic-nav-bar #side-nav-button,
+html[data-ytm-deck="1"] ytmusic-nav-bar [aria-label*="Guide"],
+html[data-ytm-deck="1"] ytmusic-nav-bar [aria-label*="Guía"],
+html[data-ytm-deck="1"] ytmusic-nav-bar [aria-label*="Menú"],
+html[data-ytm-deck="1"] ytmusic-nav-bar [aria-label*="Menu"] {
+  display: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-nav-bar #button-bar {
+  display: flex !important;
+  position: fixed !important;
+  top: var(--deck-gap) !important;
+  right: var(--deck-gap) !important;
+  left: auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: 48px !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 10px !important;
+  margin: 0 !important;
+  padding: 0 4px !important;
+  z-index: 80 !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-nav-bar #button-bar yt-icon-button,
+html[data-ytm-deck="1"] ytmusic-nav-bar #button-bar tp-yt-paper-icon-button,
+html[data-ytm-deck="1"] ytmusic-nav-bar #button-bar ytmusic-settings-button,
+html[data-ytm-deck="1"] ytmusic-nav-bar #button-bar #avatar-btn,
+html[data-ytm-deck="1"] ytmusic-nav-bar #button-bar yt-img-shadow {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  min-width: 44px !important;
+  min-height: 44px !important;
+}
+
+/* Menú de cuenta / ajustes (popup) por encima del layout Deck */
+html[data-ytm-deck="1"] ytmusic-multi-page-menu-renderer,
+html[data-ytm-deck="1"] ytmusic-menu-popup,
+html[data-ytm-deck="1"] ytmusic-popup-container,
+html[data-ytm-deck="1"] tp-yt-iron-dropdown,
+html[data-ytm-deck="1"] ytmusic-settings-menu-renderer {
+  z-index: 500 !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-nav-bar ytmusic-logo-renderer,
+html[data-ytm-deck="1"] ytmusic-nav-bar #logo,
+html[data-ytm-deck="1"] ytmusic-nav-bar ytmusic-logo {
+  display: none !important;
+}
+
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide {
+  grid-area: deck-nav !important;
+  grid-row: 1 !important;
+  grid-column: 1 !important;
+  position: relative !important;
+  inset: auto !important;
+  top: auto !important;
+  left: auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  padding-top: 10px !important;
+  transform: none !important;
+  -webkit-transform: none !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  z-index: 2 !important;
+  --paper-drawer-width: var(--deck-nav-w) !important;
+  background: var(--deck-glass) !important;
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+  border-radius: var(--deck-radius) !important;
+  border: 1px solid rgba(var(--deck-accent-rgb), 0.16) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  box-sizing: border-box !important;
+}
+
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide.deck-persistent,
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide.deck-persistent[opened],
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide.deck-persistent[aria-expanded="true"] {
+  position: relative !important;
+  transform: none !important;
+  -webkit-transform: none !important;
+  visibility: visible !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide[opened]:not(.deck-persistent),
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide[aria-expanded="true"]:not(.deck-persistent) {
+  position: fixed !important;
+  left: var(--deck-gap) !important;
+  top: var(--deck-gap) !important;
+  width: min(320px, calc(100vw - 2 * var(--deck-gap))) !important;
+  max-width: 320px !important;
+  height: calc(100vh - var(--deck-player-h) - 3 * var(--deck-gap)) !important;
+  z-index: 200 !important;
+  overflow-x: visible !important;
+  overflow-y: auto !important;
+  box-shadow: 8px 0 40px rgba(0, 0, 0, 0.45) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-renderer #guide-close-button,
+html[data-ytm-deck="1"] ytmusic-guide-renderer .close-button,
+html[data-ytm-deck="1"] ytmusic-guide-renderer #close-icon,
+html[data-ytm-deck="1"] ytmusic-guide-renderer yt-icon-button.close,
+html[data-ytm-deck="1"] #guide-content yt-icon-button[aria-label*="Close"],
+html[data-ytm-deck="1"] #guide-content yt-icon-button[aria-label*="Cerrar"],
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide > #scrim ~ yt-icon-button {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide #guide-wrapper,
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide ytmusic-guide-renderer {
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: transparent !important;
+  overflow: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-renderer #header,
+html[data-ytm-deck="1"] ytmusic-guide-renderer ytmusic-logo-renderer {
+  display: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-renderer,
+html[data-ytm-deck="1"] #guide-wrapper,
+html[data-ytm-deck="1"] #guide-content,
+html[data-ytm-deck="1"] #sections {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow-x: hidden !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-app-layout[mini-guide-visible] #guide-content,
+html[data-ytm-deck="1"] ytmusic-app-layout.mini-guide-visible #guide-content {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+html[data-ytm-deck="1"] #guide-wrapper,
+html[data-ytm-deck="1"] ytmusic-guide-renderer,
+html[data-ytm-deck="1"] #guide-content {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent !important;
+}
+
+html[data-ytm-deck="1"] #guide-content::-webkit-scrollbar,
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide::-webkit-scrollbar {
+  width: 6px !important;
+}
+
+html[data-ytm-deck="1"] #guide-content::-webkit-scrollbar-thumb,
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18) !important;
+  border-radius: 4px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 58px !important;
+  border-radius: 14px !important;
+  margin: 4px 4px !important;
+  padding: 0 14px !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  overflow: visible !important;
+  box-sizing: border-box !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer tp-yt-paper-item,
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer #endpoint {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  width: 100% !important;
+  min-height: 58px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* Un solo highlight en el ítem activo (sin doble rectángulo) */
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer[active] {
+  background: linear-gradient(135deg, rgba(var(--deck-accent-rgb), 0.42), rgba(var(--deck-chip-end-rgb), 0.3)) !important;
+  border: 1px solid rgba(var(--deck-accent-rgb), 0.22) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer[active] tp-yt-paper-item,
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer[active] #endpoint,
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer:hover tp-yt-paper-item,
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer tp-yt-paper-item.iron-selected {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer[is-primary] yt-icon.guide-icon,
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer[is-primary] iron-icon.guide-icon {
+  width: 26px !important;
+  height: 26px !important;
+  --iron-icon-width: 26px !important;
+  --iron-icon-height: 26px !important;
+  flex: 0 0 26px !important;
+  align-self: center !important;
+  margin: 0 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer[is-primary] tp-yt-paper-item,
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer[is-primary] #endpoint {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer[is-primary] .title-column {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  padding: 0 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer[is-primary] .title-group {
+  display: flex !important;
+  align-items: center !important;
+  min-height: 26px !important;
+}
+
+/* Pin / insignias en listas: icono pequeño, no heredar 26px del menú */
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer ytmusic-inline-badge-renderer yt-icon,
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer ytmusic-inline-badge-renderer iron-icon,
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer #inline-badges yt-icon,
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer #inline-badges iron-icon {
+  width: 12px !important;
+  height: 12px !important;
+  --iron-icon-width: 12px !important;
+  --iron-icon-height: 12px !important;
+  flex: 0 0 12px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer #play-button yt-icon,
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer #play-button iron-icon {
+  width: 22px !important;
+  height: 22px !important;
+  --iron-icon-width: 22px !important;
+  --iron-icon-height: 22px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer[is-primary] .title {
+  display: inline-block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  width: auto !important;
+  max-width: none !important;
+  overflow: visible !important;
+  white-space: nowrap !important;
+  margin-left: 0 !important;
+  font-size: var(--deck-fs-nav) !important;
+  font-weight: 600 !important;
+  color: var(--deck-text) !important;
+  line-height: 26px !important;
+}
+
+/* Playlists en el guide: título + subtítulo en columna, sin sangría de icono */
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer:not([is-primary]) tp-yt-paper-item,
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer:not([is-primary]) #endpoint {
+  align-items: flex-start !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer:not([is-primary]) .title-column {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  padding-right: 28px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer:not([is-primary]) .title {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  width: auto !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  margin-left: 0 !important;
+  font-size: var(--deck-fs-nav) !important;
+  font-weight: 600 !important;
+  color: var(--deck-text) !important;
+  line-height: 1.2 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer:not([is-primary]) .subtitle-group {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 4px !important;
+  margin-top: 2px !important;
+  min-width: 0 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer #inline-badges {
+  display: inline-flex !important;
+  align-items: center !important;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 12px !important;
+  min-height: 12px !important;
+  margin-right: 2px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-entry-renderer:not([is-primary]) .subtitle {
+  margin-left: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+/* Botón y texto de acceder */
+html[data-ytm-deck="1"] #guide-content tp-yt-paper-button,
+html[data-ytm-deck="1"] #guide-content ytmusic-button-renderer button {
+  font-size: var(--deck-fs-btn) !important;
+  font-weight: 600 !important;
+  min-height: 50px !important;
+  border-radius: 14px !important;
+}
+
+html[data-ytm-deck="1"] #guide-content .subtitle,
+html[data-ytm-deck="1"] #guide-content .description,
+html[data-ytm-deck="1"] #guide-content ytmusic-guide-signin-renderer,
+html[data-ytm-deck="1"] #guide-content ytmusic-sign-in-renderer,
+html[data-ytm-deck="1"] ytmusic-guide-signin-promo-renderer .descriptive-text,
+html[data-ytm-deck="1"] ytmusic-guide-signin-promo-renderer yt-formatted-string {
+  font-size: var(--deck-fs-body) !important;
+  line-height: 1.5 !important;
+  color: var(--deck-text-muted) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-guide-signin-promo-renderer .action-text {
+  font-size: var(--deck-fs-btn) !important;
+  font-weight: 600 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-app-layout[mini-guide-visible] tp-yt-app-drawer#guide,
+html[data-ytm-deck="1"] ytmusic-app-layout.mini-guide-visible tp-yt-app-drawer#guide {
+  transform: none !important;
+  visibility: visible !important;
+  width: 100% !important;
+  pointer-events: auto !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-app-layout[mini-guide-visible] ytmusic-guide-entry-renderer,
+html[data-ytm-deck="1"] ytmusic-app-layout.mini-guide-visible ytmusic-guide-entry-renderer {
+  display: flex !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-app-layout[mini-guide-visible] ytmusic-guide-entry-renderer .title,
+html[data-ytm-deck="1"] ytmusic-app-layout.mini-guide-visible ytmusic-guide-entry-renderer .title {
+  display: inline-block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* ---- Área principal ---- */
+html[data-ytm-deck="1"] #content {
+  grid-area: deck-main !important;
+  grid-row: 1 !important;
+  grid-column: 2 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  height: 100% !important;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+  left: auto !important;
+  transform: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  background: transparent !important;
+  border: none !important;
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+/* YTM desplaza #content cuando el guide está abierto */
+html[data-ytm-deck="1"] ytmusic-app-layout.guide-visible #content,
+html[data-ytm-deck="1"] ytmusic-app-layout[guide-visible] #content,
+html[data-ytm-deck="1"] ytmusic-app-layout[mini-guide-visible] #content,
+html[data-ytm-deck="1"] ytmusic-app-layout[guide-persistent-and-visible] #content {
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+  transform: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-browse-response,
+html[data-ytm-deck="1"] ytmusic-search-response {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin-left: 0 !important;
+  padding-left: var(--deck-content-pad) !important;
+  position: relative !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  padding-right: var(--deck-content-pad) !important;
+  padding-top: 4px !important;
+  padding-bottom: 16px !important;
+  background: transparent !important;
+  box-sizing: border-box !important;
+  touch-action: pan-y !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel #items,
+html[data-ytm-deck="1"] ytmusic-carousel .items-wrapper {
+  touch-action: pan-x pan-y !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+html[data-ytm-deck="1"] tp-yt-app-drawer#guide #guide-content {
+  touch-action: pan-y !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+/* Biblioteca: pestañas superiores (Mi biblioteca / Descargas / Subidas) */
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs#tabs,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs.stuck {
+  display: block !important;
+  position: relative !important;
+  top: 0 !important;
+  margin: 0 0 10px 0 !important;
+  padding: 0 !important;
+  min-height: 44px !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(var(--deck-accent-rgb), 0.14) !important;
+  box-shadow: none !important;
+  z-index: 1 !important;
+  transform: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs .tab-container,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs #tabs.tab-container {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: 44px !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs .tab,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs yt-formatted-string.tab {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 40px !important;
+  margin: 0 !important;
+  padding: 8px 14px !important;
+  border: none !important;
+  border-bottom: none !important;
+  border-radius: var(--deck-radius-pill) !important;
+  background: transparent !important;
+  color: var(--deck-text-muted) !important;
+  -webkit-text-fill-color: var(--deck-text-muted) !important;
+  font-size: var(--deck-fs-chip) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  box-shadow: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs .tab.selected,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs .tab[aria-selected="true"],
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs yt-formatted-string.tab.selected,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs yt-formatted-string.tab[aria-selected="true"] {
+  background: linear-gradient(135deg, rgba(var(--deck-accent-rgb), 0.42), rgba(var(--deck-chip-end-rgb), 0.28)) !important;
+  border: 1px solid rgba(var(--deck-accent-rgb), 0.28) !important;
+  color: var(--deck-text) !important;
+  -webkit-text-fill-color: var(--deck-text) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs tp-yt-paper-tabs-selection-bar,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs .selection-bar {
+  display: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-browse-response .background-gradient {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-sort-filter-button-renderer,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-grid-header-renderer,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-single-column-browse-results-renderer {
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+/* YTM deja ~91px de margen para el mini-guide; quitar en modo Deck */
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-chip-cloud-renderer,
+html[data-ytm-deck="1"] ytmusic-browse-response .chip-cloud-renderer,
+html[data-ytm-deck="1"] ytmusic-browse-response .header-group,
+html[data-ytm-deck="1"] ytmusic-browse-response .content-group,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-carousel ul,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-carousel-shelf-renderer,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-section-list-renderer {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Reducir hero fullbleed del home (no ocultar el resto del browse) */
+html[data-ytm-deck="1"] ytmusic-fullbleed-thumbnail-renderer {
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Quitar margen interno que YTM deja para el guide persistente */
+html[data-ytm-deck="1"] ytmusic-browse-response > *,
+html[data-ytm-deck="1"] ytmusic-browse-response > div,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-single-column-browse-results-renderer,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-section-list-renderer,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tab-renderer,
+html[data-ytm-deck="1"] ytmusic-single-column-browse-results-renderer,
+html[data-ytm-deck="1"] ytmusic-section-list-renderer,
+html[data-ytm-deck="1"] ytmusic-tab-renderer {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+  box-sizing: border-box !important;
+  background: transparent !important;
+}
+
+/* Chips de categorías — un solo pill (gradient-box + endpoint nativos) */
+html[data-ytm-deck="1"] ytmusic-chip-cloud-renderer,
+html[data-ytm-deck="1"] .chip-cloud-renderer {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  margin-bottom: 16px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-chip-cloud-chip-renderer {
+  display: inline-flex !important;
+  align-items: center !important;
+  margin: 0 8px 8px 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  overflow: visible !important;
+  vertical-align: middle !important;
+}
+
+/* No usar display:none: el enlace y el texto viven dentro de .gradient-box */
+html[data-ytm-deck="1"] ytmusic-chip-cloud-chip-renderer .gradient-box {
+  display: contents !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-chip-cloud-chip-renderer a.yt-simple-endpoint,
+html[data-ytm-deck="1"] ytmusic-chip-cloud-chip-renderer .yt-simple-endpoint {
+  position: static !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 44px !important;
+  padding: 8px 16px !important;
+  margin: 0 !important;
+  border-radius: var(--deck-radius-pill) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(var(--deck-accent-rgb), 0.22) !important;
+  box-shadow: none !important;
+  text-decoration: none !important;
+  color: var(--deck-text) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-chip-cloud-chip-renderer .text,
+html[data-ytm-deck="1"] ytmusic-chip-cloud-chip-renderer yt-formatted-string.text {
+  display: block !important;
+  white-space: nowrap !important;
+  font-size: var(--deck-fs-chip) !important;
+  font-weight: 500 !important;
+  color: var(--deck-text) !important;
+  line-height: 1.2 !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-chip-cloud-chip-renderer[selected] a.yt-simple-endpoint,
+html[data-ytm-deck="1"] ytmusic-chip-cloud-chip-renderer.chip-selected a.yt-simple-endpoint,
+html[data-ytm-deck="1"] ytmusic-chip-cloud-chip-renderer[aria-selected="true"] a.yt-simple-endpoint {
+  background: linear-gradient(135deg, rgba(var(--deck-accent-rgb), 0.45), rgba(var(--deck-chip-end-rgb), 0.32)) !important;
+  border: 1px solid rgba(var(--deck-accent-rgb), 0.32) !important;
+}
+
+/* Tarjetas browse */
+html[data-ytm-deck="1"] ytmusic-two-row-item-renderer,
+html[data-ytm-deck="1"] ytmusic-responsive-list-item-renderer {
+  min-height: 56px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer {
+  margin-bottom: 24px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .ytmusic-shelf {
+  position: relative !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .header-group {
+  padding-right: 0 !important;
+  padding-bottom: 10px !important;
+  box-sizing: border-box !important;
+  max-width: 100% !important;
+  min-height: 132px !important;
+  position: relative !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .header-group {
+  padding-right: 0 !important;
+  padding-bottom: 8px !important;
+  box-sizing: border-box !important;
+  max-width: 100% !important;
+  min-height: 52px !important;
+  position: relative !important;
+}
+
+/* Carrusel: flechas arriba, Más abajo (sin mover el DOM) */
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group {
+  position: absolute !important;
+  top: 0 !important;
+  right: var(--deck-content-pad) !important;
+  left: auto !important;
+  bottom: auto !important;
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 16px !important;
+  row-gap: 48px !important;
+  width: 108px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  z-index: 5 !important;
+  transform: none !important;
+}
+
+/* Estantes normales: todo en una fila horizontal */
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .button-group {
+  position: absolute !important;
+  top: 0 !important;
+  right: var(--deck-content-pad) !important;
+  left: auto !important;
+  bottom: auto !important;
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 16px !important;
+  width: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  z-index: 5 !important;
+  transform: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group > div,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .button-group > div {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 16px !important;
+  position: relative !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group yt-icon-button,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .button-group yt-icon-button,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group tp-yt-paper-icon-button,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .button-group tp-yt-paper-icon-button {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  bottom: auto !important;
+  inset: auto !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+  transform: none !important;
+  float: none !important;
+}
+
+/* No tocar play de portadas del carrusel */
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .content-group ytmusic-play-button-renderer,
+html[data-ytm-deck="1"] ytmusic-multi-carousel-item-renderer ytmusic-play-button-renderer {
+  position: absolute !important;
+}
+
+/* Ocultar play si quedó en el header por error */
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group ytmusic-play-button-renderer,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .button-group ytmusic-play-button-renderer {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group ytmusic-button-renderer,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group ytmusic-navigation-button-renderer {
+  flex: 1 1 100% !important;
+  justify-content: flex-end !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group ytmusic-button-renderer,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .button-group ytmusic-button-renderer,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group ytmusic-navigation-button-renderer,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .button-group ytmusic-navigation-button-renderer {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  bottom: auto !important;
+  inset: auto !important;
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  max-width: none !important;
+  margin: 0 !important;
+  transform: none !important;
+  float: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group ytmusic-button-renderer .button,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .button-group ytmusic-button-renderer .button,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group tp-yt-paper-button,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .button-group tp-yt-paper-button {
+  min-height: 44px !important;
+  padding: 0 16px !important;
+  white-space: nowrap !important;
+  border-radius: var(--deck-radius-pill) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(var(--deck-accent-rgb), 0.28) !important;
+  color: var(--deck-text) !important;
+  box-shadow: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .content-group {
+  position: relative !important;
+  margin-top: 4px !important;
+  padding-left: 4px !important;
+  padding-right: 52px !important;
+  padding-bottom: 12px !important;
+  box-sizing: border-box !important;
+  overflow-y: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .content-group #previous-items-button,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .content-group #next-items-button,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .content-group .previous-items-button,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .content-group .next-items-button {
+  position: absolute !important;
+  top: 50% !important;
+  bottom: auto !important;
+  margin: 0 !important;
+  transform: translateY(-50%) !important;
+  z-index: 6 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .content-group #previous-items-button,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .content-group .previous-items-button {
+  left: 0 !important;
+  right: auto !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .content-group #next-items-button,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .content-group .next-items-button {
+  right: 0 !important;
+  left: auto !important;
+}
+
+/* Acciones al pie del estante (p. ej. Reproducir todo) */
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .bottom-container,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .bottom-container,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .actions,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 10px !important;
+  margin-top: 12px !important;
+  padding-right: var(--deck-content-pad) !important;
+  position: relative !important;
+  z-index: 4 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .bottom-container > *,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .bottom-container > *,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .actions > *,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .actions > * {
+  position: relative !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-shelf-renderer {
+  position: relative !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-shelf-renderer > ytmusic-button-renderer,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer > ytmusic-button-renderer,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer > ytmusic-play-button-renderer,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer > ytmusic-play-button-renderer {
+  display: flex !important;
+  justify-content: flex-end !important;
+  margin: 12px var(--deck-content-pad) 0 0 !important;
+  position: relative !important;
+  z-index: 4 !important;
+}
+
+/* Flechas de carrusel: un solo círculo + icono visible */
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer yt-icon-button yt-interaction,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer yt-icon-button yt-interaction {
+  pointer-events: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer yt-icon-button,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer tp-yt-paper-icon-button,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer yt-icon-button {
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  min-height: 44px !important;
+  border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(var(--deck-accent-rgb), 0.28) !important;
+  box-shadow: none !important;
+  --iron-icon-width: 22px !important;
+  --iron-icon-height: 22px !important;
+  color: var(--deck-text) !important;
+  pointer-events: auto !important;
+  z-index: 8 !important;
+  cursor: pointer !important;
+  touch-action: manipulation !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .button-group,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .button-group {
+  pointer-events: auto !important;
+  z-index: 8 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer yt-icon-button button,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer yt-icon-button button {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--deck-text) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer yt-icon-button yt-icon,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer yt-icon-button iron-icon,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer yt-icon-button svg,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer yt-icon-button path {
+  color: var(--deck-text) !important;
+  fill: var(--deck-text) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-shelf-renderer .header-group .title,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .header-group .title,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-basic-header-renderer .title {
+  font-size: var(--deck-fs-section) !important;
+  font-weight: 700 !important;
+  color: var(--deck-text) !important;
+  margin-bottom: 12px !important;
+  line-height: 1.35 !important;
+  overflow: visible !important;
+  padding-bottom: 2px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .strapline,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-basic-header-renderer .strapline {
+  font-size: var(--deck-fs-strapline) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+  color: var(--deck-text-muted) !important;
+  line-height: 1.35 !important;
+  overflow: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer .content-group,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer ytmusic-carousel,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer ytmusic-carousel ul {
+  overflow-y: visible !important;
+  align-items: flex-start !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel #items,
+html[data-ytm-deck="1"] ytmusic-carousel .items-wrapper,
+html[data-ytm-deck="1"] #side-panel ytmusic-carousel #items {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scroll-behavior: smooth !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-x pan-y !important;
+}
+  height: auto !important;
+  max-height: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-carousel #items > *,
+html[data-ytm-deck="1"] ytmusic-carousel li {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  align-self: flex-start !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-multi-carousel-item-renderer,
+html[data-ytm-deck="1"] ytmusic-two-row-item-renderer {
+  align-self: flex-start !important;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+  padding-bottom: 8px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-shelf-renderer ytmusic-responsive-list-item-renderer,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer ytmusic-responsive-list-item-renderer {
+  align-self: stretch !important;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 64px !important;
+  overflow: hidden !important;
+  padding-bottom: 0 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-multi-carousel-item-renderer .text-wrapper,
+html[data-ytm-deck="1"] ytmusic-multi-carousel-item-renderer .title-wrapper,
+html[data-ytm-deck="1"] ytmusic-multi-carousel-item-renderer .subtitle-wrapper,
+html[data-ytm-deck="1"] ytmusic-multi-carousel-item-renderer .menu-item,
+html[data-ytm-deck="1"] ytmusic-two-row-item-renderer .text-wrapper,
+html[data-ytm-deck="1"] ytmusic-two-row-item-renderer .column-content,
+html[data-ytm-deck="1"] ytmusic-two-row-item-renderer .title-group,
+html[data-ytm-deck="1"] ytmusic-two-row-item-renderer .subtitle-group {
+  overflow: visible !important;
+  max-height: fit-content !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-shelf-renderer ytmusic-responsive-list-item-renderer .flex-columns,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer ytmusic-responsive-list-item-renderer .flex-columns,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer ytmusic-responsive-list-item-renderer .column-content,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer ytmusic-responsive-list-item-renderer .column-content {
+  overflow: hidden !important;
+  max-height: none !important;
+  height: auto !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-multi-carousel-item-renderer .title,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-multi-carousel-item-renderer .subtitle,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-two-row-item-renderer .title,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-two-row-item-renderer .subtitle,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-two-row-item-renderer .byline,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-multi-carousel-item-renderer yt-formatted-string.title,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-multi-carousel-item-renderer yt-formatted-string.subtitle,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-two-row-item-renderer yt-formatted-string.title,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-two-row-item-renderer yt-formatted-string.subtitle,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-two-row-item-renderer yt-formatted-string.byline {
+  display: block !important;
+  overflow: visible !important;
+  max-height: fit-content !important;
+  -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
+  -webkit-box-orient: unset !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+  text-overflow: clip !important;
+  font-size: var(--deck-fs-item-title) !important;
+  font-weight: 600 !important;
+  color: var(--deck-text) !important;
+  line-height: 1.4 !important;
+  padding-bottom: 2px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-multi-carousel-item-renderer .subtitle,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-two-row-item-renderer .subtitle,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-two-row-item-renderer .byline,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-multi-carousel-item-renderer yt-formatted-string.subtitle,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-two-row-item-renderer yt-formatted-string.subtitle,
+html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-two-row-item-renderer yt-formatted-string.byline {
+  font-size: var(--deck-fs-meta) !important;
+  font-weight: 400 !important;
+  color: var(--deck-text-muted) !important;
+}
+
+/* Episodios / listas en rejilla (Explorar) */
+html[data-ytm-deck="1"] ytmusic-shelf-renderer ytmusic-responsive-list-item-renderer .title,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer ytmusic-responsive-list-item-renderer .title,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer ytmusic-responsive-list-item-renderer yt-formatted-string.title,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer ytmusic-responsive-list-item-renderer yt-formatted-string.title {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 2 !important;
+  line-clamp: 2 !important;
+  overflow: hidden !important;
+  max-height: none !important;
+  margin-bottom: 0 !important;
+  font-size: var(--deck-fs-item-title) !important;
+  font-weight: 600 !important;
+  color: var(--deck-text) !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+  text-overflow: ellipsis !important;
+  padding-bottom: 0 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-shelf-renderer ytmusic-responsive-list-item-renderer .subtitle,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer ytmusic-responsive-list-item-renderer .subtitle,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer ytmusic-responsive-list-item-renderer .second-subtitle,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer ytmusic-responsive-list-item-renderer .second-subtitle,
+html[data-ytm-deck="1"] ytmusic-shelf-renderer ytmusic-responsive-list-item-renderer yt-formatted-string.subtitle,
+html[data-ytm-deck="1"] ytmusic-carousel-shelf-renderer ytmusic-responsive-list-item-renderer yt-formatted-string.subtitle {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 1 !important;
+  line-clamp: 1 !important;
+  overflow: hidden !important;
+  max-height: none !important;
+  font-size: var(--deck-fs-meta) !important;
+  font-weight: 400 !important;
+  color: var(--deck-text-muted) !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  text-overflow: ellipsis !important;
+}
+
+/* Portadas sin tinte morado */
+html[data-ytm-deck="1"] yt-img-shadow,
+html[data-ytm-deck="1"] yt-img-shadow #image,
+html[data-ytm-deck="1"] ytmusic-thumbnail-renderer,
+html[data-ytm-deck="1"] ytmusic-thumbnail-renderer #img,
+html[data-ytm-deck="1"] ytmusic-media-item-thumbnail-renderer,
+html[data-ytm-deck="1"] img.yt-core-image,
+html[data-ytm-deck="1"] ytmusic-two-row-item-renderer img,
+html[data-ytm-deck="1"] ytmusic-multi-carousel-item-renderer img {
+  background: transparent !important;
+  background-color: transparent !important;
+  filter: none !important;
+  opacity: 1 !important;
+  mix-blend-mode: normal !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-thumbnail-renderer::after,
+html[data-ytm-deck="1"] yt-img-shadow::before {
+  display: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-two-row-item-renderer,
+html[data-ytm-deck="1"] ytmusic-multi-carousel-item-renderer {
+  background: transparent !important;
+}
+
+/* ==========================================================================
+   MODO REPRODUCCIÓN
+   ========================================================================== */
+
+html[data-ytm-deck="1"].ytm-deck-playing #content {
+  display: none !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-app-layout {
+  position: relative !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-player-page,
+html[data-ytm-deck="1"].ytm-deck-playing #player-page {
+  grid-area: deck-main !important;
+  grid-row: 1 !important;
+  grid-column: 2 !important;
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 5 !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: stretch !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  gap: 14px !important;
+  padding: 16px !important;
+  box-sizing: border-box !important;
+  pointer-events: auto !important;
+  transform: none !important;
+  background: transparent !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing .deck-hero-wrap {
+  order: 1 !important;
+  flex: 0 0 44% !important;
+  max-width: 44% !important;
+  min-width: 220px !important;
+}
+
+/* Pantallas 16:9 (ROG Ally, etc.): más espacio para la cola */
+html[data-ytm-deck="1"].ytm-deck-wide.ytm-deck-playing .deck-hero-wrap {
+  flex: 0 0 34% !important;
+  max-width: 34% !important;
+  min-width: 200px !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-wide.ytm-deck-playing ytmusic-player-page .content.style-scope.ytmusic-player-page,
+html[data-ytm-deck="1"].ytm-deck-wide.ytm-deck-playing #side-panel,
+html[data-ytm-deck="1"].ytm-deck-wide.ytm-deck-playing .deck-side-panel {
+  flex: 1 1 66% !important;
+  min-width: 340px !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-wide .deck-now-playing-art {
+  width: min(100%, 300px) !important;
+}
+
+/* Ocultar video / panel nativo izquierdo (usamos portada inyectada) */
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-player-page #main-panel,
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-player-page #player,
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-player-page #player-container,
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-player-page ytmusic-info-panel-overview-view-model,
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-player-page #av-id {
+  display: none !important;
+}
+
+/* Contenedor nativo: solo la cola (#side-panel) debe quedar visible */
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-player-page .content.style-scope.ytmusic-player-page {
+  display: flex !important;
+  flex: 1 1 56% !important;
+  flex-direction: column !important;
+  order: 2 !important;
+  min-width: 300px !important;
+  width: auto !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  overflow: hidden !important;
+  background: transparent !important;
+}
+
+/* Hero: portada + meta + progreso */
+html[data-ytm-deck="1"].ytm-deck-playing .deck-hero-wrap {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 16px !important;
+  padding: 12px 16px !important;
+  box-sizing: border-box !important;
+}
+
+html[data-ytm-deck="1"] .deck-now-playing-art {
+  width: min(100%, 340px) !important;
+  aspect-ratio: 1 / 1 !important;
+  border-radius: var(--deck-radius) !important;
+  object-fit: cover !important;
+  image-rendering: auto !important;
+  background: linear-gradient(145deg, var(--deck-hero-mid), var(--deck-hero-dark)) !important;
+  box-shadow:
+    0 0 48px var(--deck-accent-glow),
+    0 16px 36px rgba(0, 0, 0, 0.45) !important;
+}
+
+html[data-ytm-deck="1"] .deck-progress-wrap {
+  display: none !important;
+}
+
+html[data-ytm-deck="1"] .deck-now-playing-meta .deck-title {
+  font-size: clamp(20px, 2.5vw, 28px) !important;
+  font-weight: 800 !important;
+  color: var(--deck-text) !important;
+  line-height: 1.2 !important;
+  text-align: center !important;
+}
+
+html[data-ytm-deck="1"] .deck-now-playing-meta .deck-artist {
+  font-size: var(--deck-fs-body) !important;
+  color: var(--deck-text-muted) !important;
+  margin-top: 4px !important;
+  text-align: center !important;
+}
+
+html[data-ytm-deck="1"]:not(.ytm-deck-playing) .deck-hero-wrap {
+  display: none !important;
+}
+
+/* Cola derecha */
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel,
+html[data-ytm-deck="1"].ytm-deck-playing .deck-side-panel {
+  order: 2 !important;
+  flex: 1 1 56% !important;
+  min-width: 300px !important;
+  width: auto !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: rgba(var(--deck-panel-rgb), 0.75) !important;
+  border-radius: var(--deck-radius) !important;
+  border: 1px solid rgba(var(--deck-accent-rgb), 0.16) !important;
+  padding: 12px 14px !important;
+  overflow: hidden !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel .tab-header-container,
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel tp-yt-paper-tabs,
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel #tabs {
+  flex-shrink: 0 !important;
+  min-height: 48px !important;
+  height: auto !important;
+  display: block !important;
+  visibility: visible !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel #tab-renderer,
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel ytmusic-tab-renderer,
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel ytmusic-queue-tab {
+  flex: 1 1 auto !important;
+  min-height: 160px !important;
+  height: auto !important;
+  overflow-y: auto !important;
+  display: block !important;
+  visibility: visible !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-queue-item,
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-playlist-panel-video-renderer {
+  display: flex !important;
+  visibility: visible !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel .tab-header,
+html[data-ytm-deck="1"].ytm-deck-playing #tabs {
+  border-bottom: 1px solid rgba(var(--deck-accent-rgb), 0.15) !important;
+  margin-bottom: 8px !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing tp-yt-paper-tab {
+  min-height: 44px !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: var(--deck-text-muted) !important;
+  -webkit-text-fill-color: var(--deck-text-muted) !important;
+}
+
+html[data-ytm-deck="1"] tp-yt-paper-tab:not(.iron-selected),
+html[data-ytm-deck="1"] tp-yt-paper-tab:not(.iron-selected) .tab-content,
+html[data-ytm-deck="1"] tp-yt-paper-tab:not(.iron-selected) yt-formatted-string,
+html[data-ytm-deck="1"] paper-tab:not(.iron-selected),
+html[data-ytm-deck="1"] paper-tab:not(.iron-selected) .tab-content {
+  color: var(--deck-text-muted) !important;
+  -webkit-text-fill-color: var(--deck-text-muted) !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing tp-yt-paper-tab.iron-selected,
+html[data-ytm-deck="1"] tp-yt-paper-tab.iron-selected,
+html[data-ytm-deck="1"] tp-yt-paper-tab.iron-selected .tab-content,
+html[data-ytm-deck="1"] tp-yt-paper-tab.iron-selected yt-formatted-string,
+html[data-ytm-deck="1"] paper-tab.iron-selected,
+html[data-ytm-deck="1"] paper-tab.iron-selected .tab-content {
+  color: var(--deck-accent) !important;
+  -webkit-text-fill-color: var(--deck-accent) !important;
+}
+
+/* Pestañas y botones del panel (cola / Guardar) */
+html[data-ytm-deck="1"] tp-yt-paper-tabs,
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel tp-yt-paper-tabs {
+  --paper-tabs-selection-bar-color: var(--deck-accent-strong) !important;
+  --paper-tab-ink: var(--deck-accent) !important;
+  --paper-tab-content-selected: var(--deck-accent) !important;
+  --paper-tab-content-unselected: var(--deck-text-muted) !important;
+  --paper-tab-content: var(--deck-text-muted) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-button-renderer .button,
+html[data-ytm-deck="1"] ytmusic-button-renderer button,
+html[data-ytm-deck="1"] ytmusic-button-renderer tp-yt-paper-button,
+html[data-ytm-deck="1"] #side-panel ytmusic-button-renderer,
+html[data-ytm-deck="1"] #side-panel tp-yt-paper-button {
+  background: rgba(var(--deck-accent-rgb), 0.32) !important;
+  background-color: rgba(var(--deck-accent-rgb), 0.32) !important;
+  color: var(--deck-text) !important;
+  border-color: rgba(var(--deck-accent-rgb), 0.28) !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel ytmusic-tab-renderer,
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel ytmusic-queue-tab,
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel #tab-renderer,
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel .tab-header-container,
+html[data-ytm-deck="1"].ytm-deck-playing #side-panel tp-yt-paper-tabs {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-queue-item:not([selected]),
+html[data-ytm-deck="1"] ytmusic-playlist-panel-video-renderer:not([selected]) {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-queue-item:hover:not([selected]),
+html[data-ytm-deck="1"] ytmusic-playlist-panel-video-renderer:hover:not([selected]) {
+  background: rgba(var(--deck-accent-rgb), 0.1) !important;
+}
+
+html[data-ytm-deck="1"] .deck-queue-subtitle {
+  color: var(--deck-text-muted) !important;
+  font-size: var(--deck-fs-meta) !important;
+  margin-bottom: 6px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-playlist-panel-video-renderer,
+html[data-ytm-deck="1"] ytmusic-queue-item {
+  min-height: 60px !important;
+  padding: 8px 10px !important;
+  border-radius: 12px !important;
+  margin-bottom: 4px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-playlist-panel-video-renderer[selected],
+html[data-ytm-deck="1"] ytmusic-queue-item[selected] {
+  background: rgba(var(--deck-accent-rgb), 0.2) !important;
+}
+
+/* Cola: menú ⋮ siempre visible a la derecha de la duración (touch) */
+html[data-ytm-deck="1"] #side-panel ytmusic-playlist-panel-video-renderer,
+html[data-ytm-deck="1"] #side-panel ytmusic-queue-item,
+html[data-ytm-deck="1"] #side-panel ytmusic-player-queue-item,
+html[data-ytm-deck="1"] #side-panel ytmusic-playlist-panel-video-renderer.deck-queue-menu-visible,
+html[data-ytm-deck="1"] #side-panel ytmusic-queue-item.deck-queue-menu-visible,
+html[data-ytm-deck="1"] #side-panel ytmusic-player-queue-item.deck-queue-menu-visible {
+  position: relative !important;
+  padding-right: 10px !important;
+  --ytmusic-menu-renderer-button-opacity: 1 !important;
+}
+
+html[data-ytm-deck="1"] #side-panel ytmusic-playlist-panel-video-renderer #flex-columns,
+html[data-ytm-deck="1"] #side-panel ytmusic-queue-item #flex-columns,
+html[data-ytm-deck="1"] #side-panel ytmusic-player-queue-item #flex-columns,
+html[data-ytm-deck="1"] #side-panel ytmusic-playlist-panel-video-renderer .flex-columns,
+html[data-ytm-deck="1"] #side-panel ytmusic-queue-item .flex-columns,
+html[data-ytm-deck="1"] #side-panel ytmusic-player-queue-item .flex-columns {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 0 !important;
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
+  min-width: 0 !important;
+  overflow: visible !important;
+}
+
+html[data-ytm-deck="1"] #side-panel .deck-queue-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
+  min-width: 92px !important;
+  padding-left: 6px !important;
+  position: relative !important;
+  pointer-events: none !important;
+}
+
+html[data-ytm-deck="1"] #side-panel .deck-queue-duration,
+html[data-ytm-deck="1"] #side-panel ytmusic-playlist-panel-video-renderer .duration,
+html[data-ytm-deck="1"] #side-panel ytmusic-queue-item .duration,
+html[data-ytm-deck="1"] #side-panel ytmusic-player-queue-item .duration,
+html[data-ytm-deck="1"] #side-panel ytmusic-playlist-panel-video-renderer yt-formatted-string.duration,
+html[data-ytm-deck="1"] #side-panel ytmusic-queue-item yt-formatted-string.duration,
+html[data-ytm-deck="1"] #side-panel ytmusic-player-queue-item yt-formatted-string.duration {
+  display: inline-flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  order: 1 !important;
+  flex: 0 0 auto !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+  padding: 0 2px 0 0 !important;
+  min-width: 38px !important;
+  justify-content: flex-end !important;
+  text-align: right !important;
+  font-variant-numeric: tabular-nums !important;
+  pointer-events: none !important;
+}
+
+/* Menú nativo invisible: ancla del popup junto al proxy */
+html[data-ytm-deck="1"] #side-panel ytmusic-playlist-panel-video-renderer #menu,
+html[data-ytm-deck="1"] #side-panel ytmusic-queue-item #menu,
+html[data-ytm-deck="1"] #side-panel ytmusic-player-queue-item #menu,
+html[data-ytm-deck="1"] #side-panel ytmusic-playlist-panel-video-renderer:not(:hover) #menu,
+html[data-ytm-deck="1"] #side-panel ytmusic-queue-item:not(:hover) #menu,
+html[data-ytm-deck="1"] #side-panel ytmusic-player-queue-item:not(:hover) #menu {
+  position: absolute !important;
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  overflow: visible !important;
+  z-index: 2 !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  transition: none !important;
+}
+
+/* Botón proxy ⋮ (duración a la izquierda, menú a la derecha) */
+html[data-ytm-deck="1"] .deck-queue-menu-proxy {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 40px !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  color: var(--deck-text-muted) !important;
+  font-size: 22px !important;
+  line-height: 1 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  order: 2 !important;
+  touch-action: manipulation !important;
+  -webkit-tap-highlight-color: transparent !important;
+  position: relative !important;
+  z-index: 3 !important;
+}
+
+html[data-ytm-deck="1"] .deck-queue-menu-proxy:hover,
+html[data-ytm-deck="1"] .deck-queue-menu-proxy:focus-visible {
+  color: var(--deck-text) !important;
+  background: rgba(var(--deck-accent-rgb), 0.12) !important;
+}
+
+/* Popup de cola: permitir reposicionamiento fijo desde JS */
+html[data-ytm-deck="1"] #side-panel ~ tp-yt-iron-dropdown.ytmusic-popup-container,
+html[data-ytm-deck="1"] tp-yt-iron-dropdown.ytmusic-popup-container {
+  transform: none !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-tab-renderer,
+html[data-ytm-deck="1"].ytm-deck-playing ytmusic-queue-tab {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y !important;
+}
+
+/* Cola: tap corto reproduce, mantener pulsado reordena (nativo YTM) */
+html[data-ytm-deck="1"] #side-panel ytmusic-playlist-panel-video-renderer,
+html[data-ytm-deck="1"] #side-panel ytmusic-queue-item,
+html[data-ytm-deck="1"] #side-panel ytmusic-player-queue-item,
+html[data-ytm-deck="1"] #side-panel ytmusic-queue-tab {
+  touch-action: pan-y !important;
+}
+
+/* ==========================================================================
+   Barra de reproducción flotante
+   ========================================================================== */
+
+html[data-ytm-deck="1"] ytmusic-player-bar {
+  grid-area: deck-player !important;
+  grid-row: 2 !important;
+  grid-column: 1 / -1 !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  position: relative !important;
+  inset: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  min-height: var(--deck-player-h) !important;
+  height: auto !important;
+  max-height: none !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 10px !important;
+  padding: 10px 16px !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  background: linear-gradient(135deg, rgba(var(--deck-bar-start-rgb), 0.97), rgba(var(--deck-bar-end-rgb), 0.95)) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-radius: var(--deck-radius-pill) !important;
+  border: 1px solid rgba(var(--deck-accent-rgb), 0.24) !important;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4), 0 0 32px rgba(var(--deck-accent-rgb), 0.15) !important;
+  z-index: 30 !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+}
+
+/* Progreso nativo: #progress-bar es hijo directo de ytmusic-player-bar */
+html[data-ytm-deck="1"] ytmusic-player-bar {
+  flex-wrap: nowrap !important;
+  position: relative !important;
+  overflow: visible !important;
+  padding-top: 0 !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-media-active ytmusic-player-bar {
+  padding-top: 14px !important;
+  min-height: calc(var(--deck-player-h) + 10px) !important;
+}
+
+html[data-ytm-deck="1"]:not(.ytm-deck-media-active) ytmusic-player-bar #progress-bar,
+html[data-ytm-deck="1"]:not(.ytm-deck-media-active) ytmusic-player-bar tp-yt-paper-slider#progress-bar,
+html[data-ytm-deck="1"]:not(.ytm-deck-media-active) ytmusic-player-bar .progress-bar-wrapper {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Sin reproducción: ocultar portada rota en la barra */
+html[data-ytm-deck="1"]:not(.ytm-deck-media-active) ytmusic-player-bar .thumbnail-image-wrapper,
+html[data-ytm-deck="1"]:not(.ytm-deck-media-active) ytmusic-player-bar .song-image,
+html[data-ytm-deck="1"]:not(.ytm-deck-media-active) ytmusic-player-bar ytmusic-thumbnail-renderer,
+html[data-ytm-deck="1"]:not(.ytm-deck-media-active) ytmusic-player-bar yt-img-shadow.image,
+html[data-ytm-deck="1"]:not(.ytm-deck-media-active) ytmusic-player-bar yt-img-shadow#thumbnail,
+html[data-ytm-deck="1"]:not(.ytm-deck-media-active) ytmusic-player-bar img.image {
+  display: none !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  flex: 0 0 0 !important;
+  border: none !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-media-active ytmusic-player-bar #progress-bar,
+html[data-ytm-deck="1"].ytm-deck-media-active ytmusic-player-bar tp-yt-paper-slider#progress-bar {
+  position: absolute !important;
+  top: 0 !important;
+  left: var(--deck-player-progress-inset-left) !important;
+  right: auto !important;
+  width: calc(100% - var(--deck-player-progress-inset-left) - var(--deck-player-progress-inset-right)) !important;
+  max-width: calc(100% - var(--deck-player-progress-inset-left) - var(--deck-player-progress-inset-right)) !important;
+  height: var(--deck-player-progress-knob) !important;
+  min-height: var(--deck-player-progress-knob) !important;
+  margin: 0 !important;
+  padding: 0 calc(var(--deck-player-progress-knob) / 2) !important;
+  transform: none !important;
+  z-index: 6 !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+  pointer-events: auto !important;
+  --paper-slider-height: 3px !important;
+  --paper-slider-active-color: var(--deck-accent-strong) !important;
+  --paper-slider-secondary-color: rgba(255, 255, 255, 0.14) !important;
+  --paper-slider-knob-color: #fff !important;
+  --paper-slider-knob-start-color: #fff !important;
+  --paper-slider-knob-start-border-color: #fff !important;
+  border-radius: var(--deck-radius-pill) var(--deck-radius-pill) 0 0 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #progress-bar #sliderContainer,
+html[data-ytm-deck="1"] ytmusic-player-bar tp-yt-paper-slider#progress-bar #sliderContainer {
+  width: 100% !important;
+  height: var(--deck-player-progress-knob) !important;
+  min-height: var(--deck-player-progress-knob) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  left: 0 !important;
+  top: 0 !important;
+  overflow: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #progress-bar .bar-container,
+html[data-ytm-deck="1"] ytmusic-player-bar #progress-bar #sliderBar,
+html[data-ytm-deck="1"] ytmusic-player-bar tp-yt-paper-slider#progress-bar .bar-container,
+html[data-ytm-deck="1"] ytmusic-player-bar tp-yt-paper-slider#progress-bar #sliderBar {
+  width: 100% !important;
+  height: 3px !important;
+  left: 0 !important;
+  right: 0 !important;
+  top: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #progress-bar tp-yt-paper-progress,
+html[data-ytm-deck="1"] ytmusic-player-bar tp-yt-paper-slider#progress-bar tp-yt-paper-progress,
+html[data-ytm-deck="1"] ytmusic-player-bar #progress-bar #progressContainer,
+html[data-ytm-deck="1"] ytmusic-player-bar tp-yt-paper-slider#progress-bar #progressContainer {
+  top: 0 !important;
+  height: 3px !important;
+  transform: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #progress-bar #sliderKnob,
+html[data-ytm-deck="1"] ytmusic-player-bar #progress-bar .slider-knob,
+html[data-ytm-deck="1"] ytmusic-player-bar tp-yt-paper-slider#progress-bar #sliderKnob,
+html[data-ytm-deck="1"] ytmusic-player-bar tp-yt-paper-slider#progress-bar .slider-knob {
+  width: var(--deck-player-progress-knob) !important;
+  height: var(--deck-player-progress-knob) !important;
+  top: calc(var(--deck-player-progress-track) / 2) !important;
+  margin-top: calc(var(--deck-player-progress-knob) / -2) !important;
+  margin-left: calc(var(--deck-player-progress-knob) / -2) !important;
+  background: #fff !important;
+  border-radius: 50% !important;
+  box-shadow: 0 0 10px var(--deck-accent-glow), 0 2px 6px rgba(0, 0, 0, 0.35) !important;
+  z-index: 8 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #progress-bar .slider-knob-inner,
+html[data-ytm-deck="1"] ytmusic-player-bar tp-yt-paper-slider#progress-bar .slider-knob-inner {
+  display: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .progress-bar-wrapper {
+  position: absolute !important;
+  top: 0 !important;
+  left: var(--deck-player-progress-inset-left) !important;
+  right: auto !important;
+  width: calc(100% - var(--deck-player-progress-inset-left) - var(--deck-player-progress-inset-right)) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  z-index: 6 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .time-info {
+  display: none !important;
+}
+
+/* Misma barra en browse y reproductor abierto (sin reglas extra por ytm-deck-playing) */
+
+html[data-ytm-deck="1"] ytmusic-player-bar #player-bar-background {
+  display: none !important;
+}
+
+/* Song info en barra: portada y texto más legibles en 7" */
+html[data-ytm-deck="1"] ytmusic-player-bar .left-controls {
+  flex: 0 1 auto !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0 !important;
+  min-width: 0 !important;
+  max-width: 42% !important;
+  width: auto !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .left-controls-buttons {
+  display: flex !important;
+  align-items: center !important;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  gap: clamp(8px, 1.5vw, 14px) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .content-info-wrapper,
+html[data-ytm-deck="1"] ytmusic-player-bar .content-info-wrapper * {
+  pointer-events: none !important;
+  cursor: default !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .thumbnail-image-wrapper,
+html[data-ytm-deck="1"] ytmusic-player-bar .song-image,
+html[data-ytm-deck="1"] ytmusic-player-bar ytmusic-thumbnail-renderer {
+  width: var(--deck-player-thumb) !important;
+  height: var(--deck-player-thumb) !important;
+  min-width: var(--deck-player-thumb) !important;
+  min-height: var(--deck-player-thumb) !important;
+  max-width: var(--deck-player-thumb) !important;
+  max-height: var(--deck-player-thumb) !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  flex: 0 0 var(--deck-player-thumb) !important;
+  flex-shrink: 0 !important;
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  transform: none !important;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .thumbnail-image-wrapper img,
+html[data-ytm-deck="1"] ytmusic-player-bar .song-image img,
+html[data-ytm-deck="1"] ytmusic-player-bar ytmusic-thumbnail-renderer img,
+html[data-ytm-deck="1"] ytmusic-player-bar yt-img-shadow img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 12px !important;
+  display: block !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .content-info-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: flex-start !important;
+  gap: 3px !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  overflow: hidden !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .content-info-wrapper .title,
+html[data-ytm-deck="1"] ytmusic-player-bar .content-info-wrapper .byline-wrapper,
+html[data-ytm-deck="1"] ytmusic-player-bar .content-info-wrapper .byline {
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+  transform: none !important;
+  width: auto !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .song-info {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  width: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  overflow: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .song-info .title,
+html[data-ytm-deck="1"] ytmusic-player-bar .middle-controls .title,
+html[data-ytm-deck="1"] ytmusic-player-bar .content-info-wrapper .title {
+  font-size: var(--deck-fs-player-title) !important;
+  font-weight: 600 !important;
+  line-height: 1.25 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .song-info .byline,
+html[data-ytm-deck="1"] ytmusic-player-bar .middle-controls .byline,
+html[data-ytm-deck="1"] ytmusic-player-bar .content-info-wrapper .byline {
+  font-size: var(--deck-fs-player-artist) !important;
+  color: var(--deck-text-muted) !important;
+  line-height: 1.25 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .middle-controls {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  overflow: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .middle-controls-buttons {
+  flex: 0 0 auto !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 2px !important;
+  margin-left: 4px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .middle-controls-buttons yt-icon-button,
+html[data-ytm-deck="1"] ytmusic-player-bar .middle-controls-buttons tp-yt-paper-icon-button {
+  width: 52px !important;
+  height: 52px !important;
+  min-width: 52px !important;
+  min-height: 52px !important;
+  --iron-icon-width: 22px !important;
+  --iron-icon-height: 22px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .middle-controls .playback-controls {
+  display: flex !important;
+  align-items: center !important;
+  gap: clamp(10px, 2.5vw, 22px) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar tp-yt-paper-icon-button,
+html[data-ytm-deck="1"] ytmusic-player-bar yt-icon-button {
+  width: var(--deck-touch) !important;
+  height: var(--deck-touch) !important;
+  min-width: var(--deck-touch) !important;
+  min-height: var(--deck-touch) !important;
+  flex-shrink: 0 !important;
+  border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  --iron-icon-width: 26px !important;
+  --iron-icon-height: 26px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .play-pause-button {
+  width: var(--deck-touch-xl) !important;
+  height: var(--deck-touch-xl) !important;
+  min-width: var(--deck-touch-xl) !important;
+  min-height: var(--deck-touch-xl) !important;
+  flex-shrink: 0 !important;
+  background: linear-gradient(145deg, var(--deck-play-gradient-start), var(--deck-accent)) !important;
+  --iron-icon-width: 36px !important;
+  --iron-icon-height: 36px !important;
+  box-shadow: 0 0 22px var(--deck-accent-glow) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .play-pause-button iron-icon,
+html[data-ytm-deck="1"] ytmusic-player-bar .play-pause-button yt-icon {
+  color: var(--deck-play-icon) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .right-controls {
+  flex: 0 0 auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  min-width: min(280px, 32vw) !important;
+  max-width: 42vw !important;
+  margin-left: 0 !important;
+  flex-shrink: 1 !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .right-controls-buttons {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  flex: 0 0 auto !important;
+}
+
+/* Volumen siempre visible; layout nativo de YTM (no forzar 60px ni absolute) */
+html[data-ytm-deck="1"] ytmusic-player-bar #volume-slider,
+html[data-ytm-deck="1"] ytmusic-player-bar tp-yt-paper-slider.volume-slider {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  width: var(--deck-volume-slider-w) !important;
+  min-width: var(--deck-volume-slider-w) !important;
+  max-width: var(--deck-volume-slider-w) !important;
+  height: var(--deck-volume-slider-h) !important;
+  min-height: var(--deck-volume-slider-h) !important;
+  max-height: var(--deck-volume-slider-h) !important;
+  flex: 0 0 auto !important;
+  align-self: center !important;
+  margin: 0 8px 0 0 !important;
+  padding: 0 var(--deck-volume-track-inset) !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+  --paper-slider-height: 4px !important;
+  --paper-slider-active-color: var(--deck-accent-strong) !important;
+  --paper-slider-secondary-color: rgba(255, 255, 255, 0.32) !important;
+  --paper-slider-container-color: rgba(255, 255, 255, 0.32) !important;
+  --paper-slider-knob-color: #fff !important;
+  --paper-slider-knob-start-color: #fff !important;
+  --paper-slider-knob-start-border-color: #fff !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar:hover #volume-slider,
+html[data-ytm-deck="1"] ytmusic-player-bar .right-controls:hover #volume-slider {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #volume-slider #sliderContainer,
+html[data-ytm-deck="1"] ytmusic-player-bar .volume-slider #sliderContainer {
+  position: relative !important;
+  width: 100% !important;
+  height: var(--deck-volume-slider-h) !important;
+  min-height: var(--deck-volume-slider-h) !important;
+  max-height: var(--deck-volume-slider-h) !important;
+  overflow: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #volume-slider tp-yt-paper-progress,
+html[data-ytm-deck="1"] ytmusic-player-bar .volume-slider tp-yt-paper-progress {
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  top: 14px !important;
+  width: 100% !important;
+  height: 4px !important;
+  margin: 0 !important;
+  transform: none !important;
+  pointer-events: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #volume-slider #progressContainer,
+html[data-ytm-deck="1"] ytmusic-player-bar .volume-slider #progressContainer {
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  top: 0 !important;
+  width: 100% !important;
+  height: 4px !important;
+  border-radius: 999px !important;
+  background: rgba(255, 255, 255, 0.32) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #volume-slider #primaryProgress,
+html[data-ytm-deck="1"] ytmusic-player-bar .volume-slider #primaryProgress {
+  height: 4px !important;
+  border-radius: 999px !important;
+  background: var(--deck-accent-strong) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #volume-slider #sliderKnobContainer,
+html[data-ytm-deck="1"] ytmusic-player-bar .volume-slider #sliderKnobContainer {
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  top: 0 !important;
+  width: 100% !important;
+  height: var(--deck-volume-slider-h) !important;
+  min-height: var(--deck-volume-slider-h) !important;
+  pointer-events: auto !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #volume-slider #sliderKnob,
+html[data-ytm-deck="1"] ytmusic-player-bar .volume-slider #sliderKnob {
+  width: var(--deck-volume-knob) !important;
+  height: var(--deck-volume-knob) !important;
+  top: calc(50% - (var(--deck-volume-knob) / 2)) !important;
+  margin-left: calc(var(--deck-volume-knob) / -2) !important;
+  margin-top: 0 !important;
+  background: #fff !important;
+  border-radius: 50% !important;
+  box-shadow: 0 0 6px var(--deck-accent-glow), 0 1px 4px rgba(0, 0, 0, 0.35) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar #volume-slider .slider-knob-inner,
+html[data-ytm-deck="1"] ytmusic-player-bar .volume-slider .slider-knob-inner {
+  display: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .expand-volume-slider,
+html[data-ytm-deck="1"] ytmusic-player-bar #expand-volume-slider,
+html[data-ytm-deck="1"] ytmusic-player-bar .expand-volume,
+html[data-ytm-deck="1"] ytmusic-player-bar #expand-volume {
+  display: none !important;
+}
+
+/* Ocultar botones que cambian entre browse y reproductor (misma barra siempre) */
+html[data-ytm-deck="1"] ytmusic-player-bar .caption-button,
+html[data-ytm-deck="1"] ytmusic-player-bar .cast-button,
+html[data-ytm-deck="1"] ytmusic-player-bar .menu {
+  display: none !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-player-bar .volume-slider {
+  width: var(--deck-volume-slider-w) !important;
+  min-width: var(--deck-volume-slider-w) !important;
+  flex-shrink: 0 !important;
+}
+
+/* Progreso inyectado */
+html[data-ytm-deck="1"] .deck-progress-wrap {
+  width: 100% !important;
+  max-width: 360px !important;
+}
+
+html[data-ytm-deck="1"] .deck-progress-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  color: var(--deck-text-muted) !important;
+  font-size: 0.88rem !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+html[data-ytm-deck="1"] .deck-progress-track {
+  flex: 1 !important;
+  height: 8px !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-radius: var(--deck-radius-pill) !important;
+  position: relative !important;
+  touch-action: none !important;
+}
+
+html[data-ytm-deck="1"] .deck-progress-fill {
+  height: 100% !important;
+  background: linear-gradient(90deg, var(--deck-accent-strong), var(--deck-accent)) !important;
+  border-radius: var(--deck-radius-pill) !important;
+}
+
+html[data-ytm-deck="1"] .deck-progress-thumb {
+  position: absolute !important;
+  top: 50% !important;
+  width: 20px !important;
+  height: 20px !important;
+  margin-top: -10px !important;
+  margin-left: -10px !important;
+  border-radius: 50% !important;
+  background: #fff !important;
+  box-shadow: 0 0 10px var(--deck-accent-glow) !important;
+}
+
+/* Touch */
+html[data-ytm-deck="1"] tp-yt-paper-icon-button,
+html[data-ytm-deck="1"] yt-icon-button,
+html[data-ytm-deck="1"] button:not(.deck-queue-menu-proxy) {
+  touch-action: manipulation !important;
+}
+
+html[data-ytm-deck="1"] * {
+  -webkit-tap-highlight-color: transparent;
+}

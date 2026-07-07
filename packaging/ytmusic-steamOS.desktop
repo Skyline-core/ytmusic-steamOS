@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=YouTube Music SteamOS
+GenericName=Music Player
+Comment=YouTube Music optimizado para Steam Deck / SteamOS con MPRIS
+Exec=ytmusic-steamOS
+Icon=ytmusic-steamOS
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=ytmusic-steamOS
+X-AppImage-Name=ytmusic-steamOS

@@ -1,0 +1,14 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-pip python3-dev \
+    build-essential patchelf file zsync wget ca-certificates \
+    libdbus-1-dev libglib2.0-dev libgirepository1.0-dev \
+    libcairo2-dev pkg-config \
+    fuse libfuse2 \
+    binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
