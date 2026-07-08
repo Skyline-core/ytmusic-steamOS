@@ -59,6 +59,7 @@ def create_deck_profile(parent=None) -> QWebEngineProfile:
     settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
     settings.setAttribute(QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)
     settings.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
+    settings.setAttribute(QWebEngineSettings.WebAttribute.TouchEventsApiEnabled, True)
 
     logger.info("Perfil WebEngine: almacenamiento en %s", root)
     return profile

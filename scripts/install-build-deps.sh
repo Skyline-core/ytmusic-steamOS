@@ -7,7 +7,7 @@ _install_build_deps() {
   local missing=()
   local cmd
 
-  for cmd in python3 patchelf file wget; do
+  for cmd in python3 patchelf file wget mksquashfs; do
     if ! command -v "${cmd}" >/dev/null 2>&1; then
       missing+=("${cmd}")
     fi
@@ -28,7 +28,7 @@ _install_build_deps() {
       gcc gcc-c++ make \
       patchelf file zsync wget \
       dbus-devel glib2-devel cairo-devel gobject-introspection-devel pkgconf-pkg-config \
-      fuse fuse-libs \
+      fuse fuse-libs squashfs-tools \
       binutils
     echo ""
     echo "Si rpm-ostree pide reinicio, reinicia el sistema y vuelve a ejecutar:"
@@ -44,7 +44,7 @@ _install_build_deps() {
       gcc gcc-c++ make \
       patchelf file zsync wget \
       dbus-devel glib2-devel cairo-devel gobject-introspection-devel pkgconf-pkg-config \
-      fuse fuse-libs \
+      fuse fuse-libs squashfs-tools \
       binutils
     return 0
   fi
@@ -56,7 +56,7 @@ _install_build_deps() {
     sudo pacman -S --needed --noconfirm \
       python python-pip python-virtualenv \
       base-devel patchelf file zsync wget \
-      dbus glib2 gobject-introspection cairo pkgconf fuse2 \
+      dbus glib2 gobject-introspection cairo pkgconf fuse2 squashfs \
       binutils
     return 0
   fi
@@ -70,7 +70,7 @@ _install_build_deps() {
       build-essential patchelf file zsync wget \
       libdbus-1-dev libglib2.0-dev libgirepository1.0-dev \
       libcairo2-dev pkg-config \
-      fuse libfuse2 \
+      fuse libfuse2 squashfs-tools \
       binutils
     return 0
   fi

@@ -157,8 +157,14 @@ class DeckInjector:
                 scale_hint = f"window.__YTM_DECK_UI_SCALE__ = {float(raw_scale)};\n"
             except ValueError:
                 scale_hint = ""
+        steam_hint = ""
+        if os.environ.get("YTMUSIC_DECKY_STEAM", "").strip().lower() in ("1", "true", "yes") or os.environ.get(
+            "SteamGameId"
+        ):
+            steam_hint = "window.__YTM_DECK_STEAM__ = 1;\n"
         return (
             scale_hint
+            + steam_hint
             + "if (!window.YTMDeck) {\n"
             + self._bridge
             + "\n}\n"

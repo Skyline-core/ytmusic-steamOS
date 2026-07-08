@@ -6,8 +6,6 @@ import argparse
 import logging
 import sys
 
-from ytmusic_decky.app import run
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -38,6 +36,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    # Importar Qt solo tras parsear args (--help no debe cargar WebEngine).
+    from ytmusic_decky.app import run
 
     return run(fullscreen=not args.windowed, enable_mpris=not args.no_mpris)
 

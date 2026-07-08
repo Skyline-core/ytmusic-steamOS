@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential patchelf file zsync wget ca-certificates \
     libdbus-1-dev libglib2.0-dev libgirepository1.0-dev \
     libcairo2-dev pkg-config \
-    fuse libfuse2 \
+    fuse libfuse2 squashfs-tools \
     binutils \
     && rm -rf /var/lib/apt/lists/*
 

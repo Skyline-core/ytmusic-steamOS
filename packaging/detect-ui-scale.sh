@@ -22,6 +22,15 @@ detect_ui_scale() {
     fi
   fi
 
+  # ROG Ally / pantallas 16:9: escala fija 1.35
+  local aspect
+  aspect="$(awk -v w="$w" -v h="$h" 'BEGIN { if (h > 0) printf "%.3f", w/h; else print "0" }')"
+  if awk -v a="$aspect" 'BEGIN { exit !(a >= 1.55) }'; then
+    export QT_SCALE_FACTOR="1.35"
+    export YTMUSIC_DECKY_UI_SCALE="1.35"
+    return
+  fi
+
   local scale
   scale="$(awk -v w="$w" -v h="$h" 'BEGIN {
     s = (w/1280 < h/800) ? w/1280 : h/800;

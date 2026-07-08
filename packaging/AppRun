@@ -3,43 +3,11 @@
 set -euo pipefail
 
 HERE="$(dirname "$(readlink -f "${0}")")"
-INTERNAL="${HERE}/_internal"
-QT="${INTERNAL}/PySide6/Qt"
+export YTMUSIC_APP_ROOT="${HERE}"
 
-# Bundle PyInstaller en la raíz del AppDir (ytmusic-decky + _internal/)
-export LD_LIBRARY_PATH="${INTERNAL}:${QT}/lib:${LD_LIBRARY_PATH:-}"
-export QT_PLUGIN_PATH="${QT}/plugins"
-export QML2_IMPORT_PATH="${QT}/qml"
-export QTWEBENGINEPROCESS_PATH="${QT}/libexec/QtWebEngineProcess"
-export QTWEBENGINE_RESOURCES_PATH="${QT}/resources"
-export QTWEBENGINE_LOCALES_PATH="${QT}/translations/qtwebengine_locales"
-export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
-
-# WebEngine en AppImage: sin sandbox y sin GPU evita pantalla en blanco en Wayland/Bazzite.
-export QTWEBENGINE_DISABLE_SANDBOX=1
-
-_CHROMIUM_FLAGS=(
-  --enable-touch-events
-  --touch-events=enabled
-  --disable-features=ElasticOverscroll
-  --disable-dev-shm-usage
-  --no-sandbox
-)
-
-# dma_buf / compositor fallan fuera de la máquina de build (p. ej. Bazzite).
-# YTMUSIC_DECKY_GPU=1 para intentar aceleración por hardware.
-if [[ "${YTMUSIC_DECKY_GPU:-0}" != "1" ]]; then
-  _CHROMIUM_FLAGS+=(
-    --disable-gpu
-    --disable-gpu-compositing
-    --disable-accelerated-video-decode
-  )
-fi
-
-if [[ -z "${QTWEBENGINE_CHROMIUM_FLAGS:-}" ]]; then
-  QTWEBENGINE_CHROMIUM_FLAGS="${_CHROMIUM_FLAGS[*]}"
-fi
-export QTWEBENGINE_CHROMIUM_FLAGS
+# shellcheck disable=SC1091
+source "${HERE}/setup-runtime-env.sh"
+ytmusic_setup_runtime_env
 
 # Steam Deck / Gamescope / handheld
 export QT_AUTO_SCREEN_SCALE_FACTOR=1
