@@ -74,11 +74,13 @@ ytmusic_setup_gl_env() {
     --enable-features=TouchEventFeatureDetection
   )
 
-  # AppImage: software GL por defecto (llvmpipe del host). GPU solo si YTMUSIC_DECKY_GPU=1.
+  # AppImage: GPU por defecto. Software GL solo con YTMUSIC_DECKY_SOFTWARE_GL=1.
   if [[ "${YTMUSIC_DECKY_GPU:-0}" == "1" ]]; then
     export YTMUSIC_DECKY_SOFTWARE_GL=0
-  elif [[ "${YTMUSIC_DECKY_SOFTWARE_GL:-1}" != "0" ]]; then
+  elif [[ "${YTMUSIC_DECKY_SOFTWARE_GL:-0}" == "1" ]]; then
     export YTMUSIC_DECKY_SOFTWARE_GL=1
+  elif [[ -n "${YTMUSIC_APP_ROOT:-}" ]]; then
+    export YTMUSIC_DECKY_SOFTWARE_GL=0
   fi
 
   if [[ "${YTMUSIC_DECKY_SOFTWARE_GL:-0}" == "1" ]]; then

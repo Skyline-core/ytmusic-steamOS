@@ -30,6 +30,7 @@ window.YTMDeck = (function () {
   let sideTabUserPicked = false;
   let activeQueueMenuProxy = null;
   let pollTick = 0;
+  let guideMetricsTimer = null;
   const touchResetHooks = [];
 
   function registerTouchReset(fn) {
@@ -138,7 +139,7 @@ window.YTMDeck = (function () {
     return rect.width > 40 && rect.height > 40;
   }
 
-  /** Reproductor expandido: botón "Cerrar la página del reproductor" visible */
+  /** Reproductor expandido: estado real del DOM de YTM (no la clase deck). */
   function isPlayerPageOpen() {
     const btn = qs(
       "ytmusic-player-bar .toggle-player-page-button yt-icon-button, ytmusic-player-bar .toggle-player-page-button button"
@@ -146,11 +147,11 @@ window.YTMDeck = (function () {
     if (btn) {
       const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
       if (/cerrar|close|collapse|contraer/.test(aria)) return true;
+      if (/expand|abrir|open|mostrar|ampliar|maximizar/.test(aria)) return false;
     }
 
     const page = qs("ytmusic-player-page, #player-page");
     if (!page || !isVisible(page)) return false;
-    if (document.documentElement.classList.contains("ytm-deck-playing")) return true;
     const rect = page.getBoundingClientRect();
     return rect.width > 120 && rect.height > 120;
   }
@@ -245,23 +246,31 @@ window.YTMDeck = (function () {
   }
 
   function closePlayerPage() {
-    if (!isPlayerPageOpen()) return false;
+    const pageOpen = isPlayerPageOpen();
+    const deckPlaying = document.documentElement.classList.contains("ytm-deck-playing");
+    if (!pageOpen && !deckPlaying) return false;
 
-    const bar = qs("ytmusic-player-bar");
-    const btn = getPlayerPageToggleButton(bar);
-    const toggleHost = qs(".toggle-player-page-button", bar);
-    const aria = (btn?.getAttribute("aria-label") || "").toLowerCase();
-    if (btn && /cerrar|close|collapse|contraer/.test(aria)) {
-      dispatchNativeClick(btn);
-      btn.click();
-    } else if (toggleHost) {
-      dispatchNativeClick(toggleHost);
-      toggleHost.click();
+    if (pageOpen) {
+      const bar = qs("ytmusic-player-bar");
+      const btn = getPlayerPageToggleButton(bar);
+      const toggleHost = qs(".toggle-player-page-button", bar);
+      const aria = (btn?.getAttribute("aria-label") || "").toLowerCase();
+      if (btn && /cerrar|close|collapse|contraer/.test(aria)) {
+        dispatchNativeClick(btn);
+        btn.click();
+      } else if (toggleHost) {
+        dispatchNativeClick(toggleHost);
+        toggleHost.click();
+      }
     }
 
     exitPlayingViewForced();
     setTimeout(syncPlayingView, 0);
     setTimeout(syncPlayingView, 350);
+    setTimeout(() => {
+      ensureSidebarExpanded();
+      ensureGuideScrollLayout();
+    }, 400);
     return true;
   }
 
@@ -1359,7 +1368,7 @@ window.YTMDeck = (function () {
     const wide = aspect >= WIDE_ASPECT;
     const scale = resolveDeckScale(w, h, wide);
     const root = document.documentElement;
-    const navBase = wide ? 268 : 312;
+    const navBase = wide ? 360 : 336;
 
     root.style.setProperty("--deck-ui-scale", scale.toFixed(3));
     root.style.setProperty("--deck-nav-w", wide ? `${navBase}px` : deckPx(navBase, scale));
@@ -1371,10 +1380,15 @@ window.YTMDeck = (function () {
     root.style.setProperty("--deck-col-gap", deckPx(6, scale));
     root.style.setProperty("--deck-content-pad", deckPx(12, scale));
     root.style.setProperty("--deck-volume-slider-w", wide ? "140px" : deckPx(152, scale));
-    root.style.setProperty("--deck-player-volume-col", wide ? "min(440px, 38vw)" : "min(480px, 40vw)");
+    root.style.setProperty(
+      "--deck-media-text-max",
+      wide
+        ? "clamp(100px, 26vw, 280px)"
+        : `clamp(${deckPx(120, scale)}, 32vw, ${deckPx(360, scale)})`
+    );
     root.style.setProperty(
       "--deck-media-text-min",
-      `clamp(${deckPx(180, scale)}, 48vw, ${deckPx(520, scale)})`
+      `clamp(${deckPx(140, scale)}, 34vw, ${deckPx(380, scale)})`
     );
     root.style.setProperty("--deck-fs-nav", deckPx(18, scale));
     root.style.setProperty("--deck-fs-chip", deckPx(16, scale));
@@ -1542,6 +1556,7 @@ window.YTMDeck = (function () {
     mountGuideAccountBar(accountBar);
     syncAccountBarPlacement();
     syncGuideAccountBarLayout();
+    ensureGuideScrollLayout();
   }
 
   function mountGuideAccountBar(accountBar) {
@@ -1564,6 +1579,9 @@ window.YTMDeck = (function () {
       contentContainer.style.top = "0";
       contentContainer.style.position = "relative";
       contentContainer.style.height = "100%";
+      contentContainer.style.overflowX = "hidden";
+      contentContainer.style.overflowY = "scroll";
+      contentContainer.style.webkitOverflowScrolling = "touch";
     }
 
     const staleTopBar = qs(".deck-guide-top-bar", guideContent);
@@ -1668,6 +1686,8 @@ window.YTMDeck = (function () {
     });
 
     syncGuideAccountBarLayout();
+    mountGuideScrollWrapper();
+    ensureGuideScrollLayout();
   }
 
   function syncGuideAccountBarLayout() {
@@ -2257,14 +2277,403 @@ window.YTMDeck = (function () {
     return null;
   }
 
+  function walkUpFromTarget(target) {
+    const nodes = [];
+    let node = target;
+    while (node) {
+      nodes.push(node);
+      if (node instanceof Element && node.parentElement) {
+        node = node.parentElement;
+        continue;
+      }
+      if (node.parentNode && node.parentNode !== node) {
+        node = node.parentNode;
+        continue;
+      }
+      const root = node.getRootNode?.();
+      if (root instanceof ShadowRoot && root.host) {
+        node = root.host;
+        continue;
+      }
+      break;
+    }
+    return nodes;
+  }
+
+  function isGuideChromeTarget(target) {
+    for (const node of walkUpFromTarget(target)) {
+      if (!(node instanceof Element)) continue;
+      if (
+        node.matches?.(
+          ".deck-guide-account-bar, #button-bar, #right-content, #avatar-btn, ytmusic-cast-button, ytmusic-settings-button"
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isGuideScrollTarget(target, clientX, clientY) {
+    if (document.documentElement.classList.contains("ytm-deck-playing")) return false;
+    if (isGuideChromeTarget(target)) return false;
+
+    for (const node of walkUpFromTarget(target)) {
+      if (!(node instanceof Element)) continue;
+      if (
+        node.matches?.(
+          "#contentContainer, .deck-guide-scroll, tp-yt-app-drawer#guide, #guide-content, #guide-wrapper, ytmusic-guide-renderer, ytmusic-guide-entry-renderer, #sections"
+        )
+      ) {
+        return true;
+      }
+    }
+
+    const zone = getGuideScrollRoot() || qs("tp-yt-app-drawer#guide");
+    if (!zone || clientX == null || clientY == null) return false;
+    const rect = zone.getBoundingClientRect();
+    return (
+      clientX >= rect.left &&
+      clientX <= rect.right &&
+      clientY >= rect.top &&
+      clientY <= rect.bottom
+    );
+  }
+
+  function getGuideScrollRoot() {
+    return (
+      qs("tp-yt-app-drawer#guide #contentContainer") ||
+      qs("#guide-content > .deck-guide-scroll") ||
+      qs(".deck-guide-scroll")
+    );
+  }
+
+  function scheduleGuideScrollMetrics() {
+    if (document.documentElement.classList.contains("ytm-deck-playing")) return;
+    if (guideMetricsTimer) clearTimeout(guideMetricsTimer);
+    guideMetricsTimer = setTimeout(() => {
+      guideMetricsTimer = null;
+      forceGuideScrollMetrics();
+    }, 300);
+  }
+
+  function guideScrollNeedsRepair() {
+    const guideContent = qs("#guide-content");
+    const renderer = getGuideRenderer();
+    if (!guideContent || !renderer) return false;
+    const staleWrap = qs("#guide-content > .deck-guide-scroll");
+    if (staleWrap?.contains(renderer)) return true;
+    return !guideContent.contains(renderer);
+  }
+
+  function mountGuideScrollWrapper() {
+    const guideContent = qs("#guide-content");
+    const guideRenderer = getGuideRenderer();
+    const drawer = qs("tp-yt-app-drawer#guide");
+    if (!guideContent || !guideRenderer || !drawer) return null;
+
+    const wrap = qs("#guide-content > .deck-guide-scroll");
+    if (wrap && guideRenderer.parentElement === wrap) {
+      guideContent.insertBefore(guideRenderer, wrap.nextSibling);
+    }
+    if (wrap && !wrap.childElementCount) {
+      wrap.remove();
+    }
+
+    const cc = qs("#contentContainer");
+    if (cc) {
+      const ready =
+        getComputedStyle(cc).overflowY === "scroll" &&
+        getComputedStyle(guideContent).overflow === "visible";
+      if (!ready) {
+        cc.style.setProperty("display", "block", "important");
+        cc.style.setProperty("height", "100%", "important");
+        cc.style.setProperty("min-height", "0", "important");
+        cc.style.setProperty("overflow-x", "hidden", "important");
+        cc.style.setProperty("overflow-y", "scroll", "important");
+        cc.style.setProperty("-webkit-overflow-scrolling", "touch", "important");
+        cc.style.setProperty("touch-action", "pan-y", "important");
+        cc.style.setProperty("overscroll-behavior", "contain", "important");
+      }
+    }
+
+    const wrapper = qs("#guide-wrapper");
+    if (wrapper) {
+      wrapper.style.setProperty("display", "block", "important");
+      wrapper.style.setProperty("height", "auto", "important");
+      wrapper.style.setProperty("min-height", "0", "important");
+      wrapper.style.setProperty("overflow", "visible", "important");
+    }
+
+    guideContent.style.setProperty("display", "block", "important");
+    guideContent.style.setProperty("height", "auto", "important");
+    guideContent.style.setProperty("min-height", "0", "important");
+    guideContent.style.setProperty("max-height", "none", "important");
+    guideContent.style.setProperty("overflow", "visible", "important");
+
+    guideRenderer.style.setProperty("display", "block", "important");
+    guideRenderer.style.setProperty("width", "100%", "important");
+    guideRenderer.style.setProperty("height", "auto", "important");
+    guideRenderer.style.setProperty("max-height", "none", "important");
+    guideRenderer.style.setProperty("overflow", "visible", "important");
+
+    drawer.style.setProperty("overflow", "hidden", "important");
+    drawer.style.setProperty("touch-action", "pan-y", "important");
+
+    return cc || getGuideScrollRoot();
+  }
+
+  function forceGuideScrollMetrics() {
+    return mountGuideScrollWrapper();
+  }
+
+  function ensureGuideScrollLayout() {
+    forceGuideScrollMetrics();
+  }
+
+  function observeGuideScrollMetrics() {
+    if (window.__YTM_DECK_GUIDE_SCROLL_OBS__) return;
+    window.__YTM_DECK_GUIDE_SCROLL_OBS__ = true;
+    const ro = new ResizeObserver(() => scheduleGuideScrollMetrics());
+    const attach = () => {
+      const drawer = qs("tp-yt-app-drawer#guide");
+      const contentContainer = qs("tp-yt-app-drawer#guide #contentContainer");
+      if (drawer) ro.observe(drawer);
+      if (contentContainer) ro.observe(contentContainer);
+    };
+    attach();
+
+    const mo = new MutationObserver(() => {
+      if (guideScrollNeedsRepair()) scheduleGuideScrollMetrics();
+    });
+    const guideContent = qs("#guide-content");
+    if (guideContent) {
+      mo.observe(guideContent, { childList: true });
+    }
+
+    registerTouchReset(() => scheduleGuideScrollMetrics());
+  }
+
+  function getGuideScroller() {
+    forceGuideScrollMetrics();
+    return (
+      pickBestScroller(collectGuideScrollCandidates()) ||
+      qs("tp-yt-app-drawer#guide #contentContainer") ||
+      getGuideScrollRoot()
+    );
+  }
+
+  function collectGuideScrollCandidates() {
+    return [
+      qs("tp-yt-app-drawer#guide #contentContainer"),
+      getGuideScrollRoot(),
+      mountGuideScrollWrapper(),
+      getGuideRenderer(),
+    ];
+  }
+
+  function findScrollableAncestor(target) {
+    let best = null;
+    let bestOverflow = 0;
+    for (const node of walkUpFromTarget(target)) {
+      if (!(node instanceof Element)) continue;
+      const overflow = node.scrollHeight - node.clientHeight;
+      if (overflow > bestOverflow) {
+        best = node;
+        bestOverflow = overflow;
+      }
+    }
+    return bestOverflow > 2 ? best : null;
+  }
+
+  function getGuideRenderer() {
+    return (
+      qs("#guide-content > ytmusic-guide-renderer") ||
+      qs("#guide-content > .deck-guide-scroll > ytmusic-guide-renderer") ||
+      qs("tp-yt-app-drawer#guide ytmusic-guide-renderer") ||
+      qs("ytmusic-guide-renderer")
+    );
+  }
+
+  function isVerticallyScrollable(el) {
+    if (!el || !(el instanceof Element)) return false;
+    return el.scrollHeight > el.clientHeight + 2;
+  }
+
   function pickBestScroller(candidates) {
     const unique = [];
     for (const el of candidates) {
       if (!el || unique.includes(el)) continue;
       unique.push(el);
-      if (el.scrollHeight > el.clientHeight + 2) return el;
     }
-    return unique[0] || null;
+    let best = null;
+    let bestOverflow = 0;
+    for (const el of unique) {
+      const overflow = el.scrollHeight - el.clientHeight;
+      if (overflow > bestOverflow) {
+        best = el;
+        bestOverflow = overflow;
+      }
+    }
+    return bestOverflow > 2 ? best : null;
+  }
+
+  function bindGuideTouchScroll() {
+    if (window.__YTM_DECK_GUIDE_SCROLL_BOUND__) return;
+    window.__YTM_DECK_GUIDE_SCROLL_BOUND__ = true;
+
+    let drag = null;
+    let suppressClickUntil = 0;
+
+    const clearDrag = () => {
+      drag = null;
+    };
+
+    const findTouch = (event, id) => {
+      for (const list of [event.touches, event.changedTouches]) {
+        if (!list) continue;
+        for (const touch of list) {
+          if (touch.identifier === id) return touch;
+        }
+      }
+      return null;
+    };
+
+    const startDrag = (id, x, y, target, source) => {
+      if (!isGuideScrollTarget(target, x, y)) return;
+      if (drag && drag.source !== source) return;
+      if (drag) return;
+      const scroller = getGuideScroller();
+      if (!scroller) return;
+      drag = {
+        id,
+        x,
+        y,
+        scroller,
+        top: scroller.scrollTop,
+        moved: false,
+        source,
+      };
+    };
+
+    const moveDrag = (id, x, y, event) => {
+      if (!drag || drag.id !== id) return;
+      const dy = y - drag.y;
+      if (Math.abs(dy) < 4) return;
+      drag.moved = true;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const maxTop = Math.max(0, drag.scroller.scrollHeight - drag.scroller.clientHeight);
+      drag.scroller.scrollTop = Math.max(0, Math.min(maxTop, drag.top - dy));
+    };
+
+    const endDrag = (id, event) => {
+      if (!drag || drag.id !== id) return;
+      if (drag.moved) {
+        event?.preventDefault?.();
+        event?.stopImmediatePropagation?.();
+        suppressClickUntil = performance.now() + SCROLL_DRAG_SUPPRESS_MS;
+      }
+      clearDrag();
+    };
+
+    document.addEventListener(
+      "touchstart",
+      (event) => {
+        const touch = event.changedTouches[0];
+        if (!touch) return;
+        startDrag(touch.identifier, touch.clientX, touch.clientY, event.target, "touch");
+      },
+      { capture: true, passive: true }
+    );
+
+    document.addEventListener(
+      "touchmove",
+      (event) => {
+        if (!drag || drag.source !== "touch") return;
+        const touch = findTouch(event, drag.id);
+        if (!touch) return;
+        moveDrag(touch.identifier, touch.clientX, touch.clientY, event);
+      },
+      { capture: true, passive: false }
+    );
+
+    document.addEventListener(
+      "touchend",
+      (event) => {
+        if (!drag || drag.source !== "touch") return;
+        const touch = findTouch(event, drag.id);
+        if (!touch) return;
+        endDrag(touch.identifier, event);
+      },
+      { capture: true, passive: false }
+    );
+
+    document.addEventListener(
+      "touchcancel",
+      (event) => {
+        if (!drag || drag.source !== "touch") return;
+        const touch = findTouch(event, drag.id);
+        if (!touch) return;
+        endDrag(touch.identifier, event);
+      },
+      { capture: true, passive: false }
+    );
+
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (event.button !== 0) return;
+        if (drag?.source === "touch") return;
+        startDrag(event.pointerId, event.clientX, event.clientY, event.target, "pointer");
+      },
+      { capture: true }
+    );
+
+    document.addEventListener(
+      "pointermove",
+      (event) => {
+        if (!drag || drag.source !== "pointer") return;
+        moveDrag(event.pointerId, event.clientX, event.clientY, event);
+      },
+      { capture: true, passive: false }
+    );
+
+    document.addEventListener("pointerup", (event) => {
+      if (!drag || drag.source !== "pointer") return;
+      endDrag(event.pointerId, event);
+    }, { capture: true });
+
+    document.addEventListener("pointercancel", (event) => {
+      if (!drag || drag.source !== "pointer") return;
+      endDrag(event.pointerId, event);
+    }, { capture: true });
+
+    document.addEventListener(
+      "wheel",
+      (event) => {
+        if (!isGuideScrollTarget(event.target, event.clientX, event.clientY)) return;
+        const scroller = getGuideScroller();
+        if (!scroller || scroller.scrollHeight <= scroller.clientHeight + 2) return;
+        event.preventDefault();
+        scroller.scrollTop += event.deltaY;
+      },
+      { capture: true, passive: false }
+    );
+
+    document.addEventListener(
+      "click",
+      (event) => {
+        if (!isGuideScrollTarget(event.target, event.clientX, event.clientY)) return;
+        if (performance.now() < suppressClickUntil) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      },
+      true
+    );
+
+    registerTouchReset(clearDrag);
   }
 
   function getQueueItemFromThumbnail(target, clientX, clientY) {
@@ -2448,7 +2857,7 @@ window.YTMDeck = (function () {
   function deckBack() {
     if (closeOpenPopups()) return;
 
-    if (isPlayerPageOpen()) {
+    if (isPlayerPageOpen() || document.documentElement.classList.contains("ytm-deck-playing")) {
       closePlayerPage();
       return;
     }
@@ -2475,8 +2884,12 @@ window.YTMDeck = (function () {
       if (queue && queue.scrollHeight > queue.clientHeight + 4) return queue;
     }
 
-    const guide = qs("tp-yt-app-drawer#guide #guide-content, #guide-content");
-    if (guide && guide.scrollHeight > guide.clientHeight + 4) return guide;
+    const guide = getGuideRenderer() || qs("tp-yt-app-drawer#guide #guide-content, #guide-content");
+    if (guide) {
+      ensureGuideScrollLayout();
+      const guideScroller = getGuideScroller();
+      if (guideScroller) return guideScroller;
+    }
 
     const browse = qs("ytmusic-browse-response, ytmusic-search-response");
     if (browse && browse.scrollHeight > browse.clientHeight + 4) return browse;
@@ -2568,6 +2981,8 @@ window.YTMDeck = (function () {
     window.__YTM_DECK_TOUCH_GESTURES__ = true;
 
     bindPreventLinkDrag();
+    observeGuideScrollMetrics();
+    bindGuideTouchScroll();
 
     const MODE = { PENDING: "pending", H_SCROLL: "hscroll", V_SCROLL: "vscroll", REORDER: "reorder" };
     let gesture = null;
@@ -2656,16 +3071,10 @@ window.YTMDeck = (function () {
         if (target.closest?.(".deck-guide-account-bar, #button-bar, #right-content, #avatar-btn, ytmusic-cast-button, ytmusic-settings-button")) {
           return null;
         }
-        const scroller = pickBestScroller([
-            qs("tp-yt-app-drawer#guide #guide-content"),
-            qs("#guide-content"),
-            qs("tp-yt-app-drawer#guide"),
-            findDeckHost(target, ["#guide-content"]),
-            findDeckHost(target, ["tp-yt-app-drawer#guide"]),
-            qs("#guide-wrapper"),
-          ]);
-          if (scroller) return { scroller, item: null };
-        }
+        ensureGuideScrollLayout();
+        const scroller = getGuideScroller();
+        if (scroller) return { scroller, item: null };
+      }
       }
 
       const browse = findDeckHost(target, [
@@ -2701,6 +3110,7 @@ window.YTMDeck = (function () {
       (event) => {
         if (event.button !== 0) return;
         if (isScrollControl(event.target)) return;
+        if (isGuideScrollTarget(event.target, event.clientX, event.clientY)) return;
 
         clearGesture();
 
@@ -3340,25 +3750,38 @@ window.YTMDeck = (function () {
     if (window.__YTM_DECK_TOGGLE_V3__) return;
     window.__YTM_DECK_TOGGLE_V3__ = true;
 
+    let toggleWasOpen = null;
+
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (!event.target.closest("ytmusic-player-bar .toggle-player-page-button")) return;
+        if (event.button !== 0) return;
+        toggleWasOpen = isPlayerPageOpen();
+      },
+      true
+    );
+
     document.addEventListener(
       "pointerup",
       (event) => {
         if (!event.target.closest("ytmusic-player-bar .toggle-player-page-button")) return;
         if (event.button !== 0 && event.pointerType !== "touch") return;
 
-        const wasOpen = isPlayerPageOpen();
+        const wasOpen = toggleWasOpen;
+        toggleWasOpen = null;
         setTimeout(() => {
           const nowOpen = isPlayerPageOpen();
-          if (!wasOpen && nowOpen) {
+          if (wasOpen === true && nowOpen === false) {
             syncPlayingView();
             return;
           }
-          if (wasOpen && !nowOpen) {
+          if (wasOpen === false && nowOpen === true) {
             syncPlayingView();
             return;
           }
-          if (!wasOpen && !nowOpen) openPlayerPage();
-          else if (wasOpen && nowOpen) closePlayerPage();
+          if (wasOpen === false && nowOpen === false) openPlayerPage();
+          else if (wasOpen === true && nowOpen === true) closePlayerPage();
         }, 80);
       },
       false
@@ -3438,9 +3861,12 @@ window.YTMDeck = (function () {
         getComputedStyle(document.documentElement).getPropertyValue("--deck-nav-w").trim() || "272px";
       drawer.style.setProperty("--paper-drawer-width", navW);
       drawer.style.overflowX = "hidden";
-      drawer.style.overflowY = "auto";
+      drawer.style.overflowY = "hidden";
     }
     hideGuideCloseButtons();
+    ensureGuideScrollLayout();
+    observeGuideScrollMetrics();
+    bindGuideTouchScroll();
     qsa("ytmusic-guide-entry-renderer .title").forEach((el) => {
       el.style.visibility = "visible";
       el.style.display = "inline-block";
@@ -4683,6 +5109,29 @@ window.YTMDeck = (function () {
     });
   }
 
+  function debugGuideScroll() {
+    ensureGuideScrollLayout();
+    const cc = qs("tp-yt-app-drawer#guide #contentContainer");
+    const scroller = getGuideScroller();
+    const snap = (el) =>
+      el
+        ? {
+            tag: el.tagName?.toLowerCase?.() || null,
+            cls: el.className || null,
+            scrollHeight: el.scrollHeight,
+            clientHeight: el.clientHeight,
+            scrollTop: el.scrollTop,
+            overflowY: getComputedStyle(el).overflowY,
+            canScroll: el.scrollHeight > el.clientHeight + 2,
+          }
+        : null;
+    return {
+      entries: qsa("ytmusic-guide-entry-renderer").length,
+      contentContainer: snap(cc),
+      scroller: snap(scroller),
+    };
+  }
+
   return {
     start,
     handleCommand,
@@ -4690,6 +5139,7 @@ window.YTMDeck = (function () {
     scheduleLayout,
     collectState,
     resetTouchState,
+    debugGuideScroll,
     get ready() {
       return deckUiReady;
     },

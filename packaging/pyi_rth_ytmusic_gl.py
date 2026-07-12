@@ -17,7 +17,7 @@ def _use_software_gl() -> bool:
     if os.environ.get("YTMUSIC_DECKY_SOFTWARE_GL", "").strip().lower() in ("0", "false", "no"):
         return False
     if getattr(sys, "frozen", False):
-        return _truthy("YTMUSIC_DECKY_SOFTWARE_GL", "1")
+        return _truthy("YTMUSIC_DECKY_SOFTWARE_GL")
     return _truthy("YTMUSIC_DECKY_SOFTWARE_GL")
 
 
