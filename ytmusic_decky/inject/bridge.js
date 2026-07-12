@@ -1359,7 +1359,7 @@ window.YTMDeck = (function () {
     const wide = aspect >= WIDE_ASPECT;
     const scale = resolveDeckScale(w, h, wide);
     const root = document.documentElement;
-    const navBase = wide ? 236 : 276;
+    const navBase = wide ? 268 : 312;
 
     root.style.setProperty("--deck-ui-scale", scale.toFixed(3));
     root.style.setProperty("--deck-nav-w", wide ? `${navBase}px` : deckPx(navBase, scale));
@@ -1370,10 +1370,11 @@ window.YTMDeck = (function () {
     root.style.setProperty("--deck-gap", deckPx(10, scale));
     root.style.setProperty("--deck-col-gap", deckPx(6, scale));
     root.style.setProperty("--deck-content-pad", deckPx(12, scale));
-    root.style.setProperty("--deck-volume-slider-w", wide ? "88px" : deckPx(92, scale));
+    root.style.setProperty("--deck-volume-slider-w", wide ? "140px" : deckPx(152, scale));
+    root.style.setProperty("--deck-player-volume-col", wide ? "min(440px, 38vw)" : "min(480px, 40vw)");
     root.style.setProperty(
       "--deck-media-text-min",
-      `clamp(${deckPx(240, scale)}, 62vw, ${deckPx(620, scale)})`
+      `clamp(${deckPx(180, scale)}, 48vw, ${deckPx(520, scale)})`
     );
     root.style.setProperty("--deck-fs-nav", deckPx(18, scale));
     root.style.setProperty("--deck-fs-chip", deckPx(16, scale));

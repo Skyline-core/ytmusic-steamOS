@@ -28,7 +28,7 @@
   --deck-gap: 10px;
   --deck-col-gap: 6px;
   --deck-content-pad: 12px;
-  --deck-nav-w: 236px;
+  --deck-nav-w: 280px;
   --deck-touch: 60px;
   --deck-touch-xl: 80px;
   --deck-avatar-size: 48px;
@@ -71,11 +71,12 @@
   --deck-queue-tab-min-h: 52px;
   --deck-queue-header-min-h: 56px;
   --deck-player-thumb: 62px;
-  --deck-volume-slider-w: 96px;
+  --deck-volume-slider-w: 152px;
   --deck-volume-slider-h: 40px;
   --deck-volume-knob: 24px;
   --deck-volume-track-inset: 10px;
-  --deck-player-bar-gap: 12px;
+  --deck-player-volume-col: min(480px, 40vw);
+  --deck-player-bar-gap: 14px;
   --deck-player-bar-pad-left: 16px;
   --deck-player-bar-pad-right: 16px;
   --deck-player-bar-pad: var(--deck-player-bar-pad-left);
@@ -1878,7 +1879,9 @@ html[data-ytm-deck="1"].ytm-deck-wide ytmusic-player-bar .left-controls {
 }
 
 html[data-ytm-deck="1"].ytm-deck-wide ytmusic-player-bar {
-  --deck-media-text-min: clamp(280px, 62vw, 580px);
+  --deck-media-text-min: clamp(240px, 48vw, 520px);
+  --deck-player-volume-col: min(440px, 38vw);
+  --deck-volume-slider-w: 140px;
 }
 
 html[data-ytm-deck="1"].ytm-deck-wide ytmusic-player-bar .middle-controls {
@@ -2446,7 +2449,7 @@ html[data-ytm-deck="1"] ytmusic-player-bar {
   min-height: var(--deck-player-h) !important;
   height: auto !important;
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) minmax(0, min(400px, 34vw)) !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--deck-player-volume-col)) !important;
   grid-template-areas: "deck-info deck-volume" !important;
   align-items: center !important;
   column-gap: var(--deck-player-bar-gap) !important;
@@ -2661,8 +2664,8 @@ html[data-ytm-deck="1"] ytmusic-player-bar .deck-media-info {
   align-items: center !important;
   gap: 8px !important;
   flex: 1 1 auto !important;
-  min-width: min(100%, var(--deck-media-text-min)) !important;
-  max-width: none !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
   overflow: hidden !important;
 }
 
@@ -2706,8 +2709,8 @@ html[data-ytm-deck="1"] ytmusic-player-bar .deck-media-text {
   justify-content: center !important;
   gap: 2px !important;
   flex: 1 1 auto !important;
-  min-width: var(--deck-media-text-min) !important;
-  max-width: none !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
   overflow: hidden !important;
 }
 
@@ -3153,7 +3156,7 @@ html[data-ytm-deck="1"] ytmusic-player-bar .right-controls {
   justify-content: flex-end !important;
   gap: 4px !important;
   width: 100% !important;
-  max-width: min(400px, 34vw) !important;
+  max-width: var(--deck-player-volume-col) !important;
   min-width: 0 !important;
   overflow: visible !important;
   box-sizing: border-box !important;
@@ -3238,8 +3241,8 @@ html[data-ytm-deck="1"] ytmusic-player-bar tp-yt-paper-slider.volume-slider {
   visibility: visible !important;
   opacity: 1 !important;
   pointer-events: auto !important;
-  width: clamp(96px, 12vw, var(--deck-volume-slider-w)) !important;
-  min-width: 96px !important;
+  width: clamp(120px, 14vw, var(--deck-volume-slider-w)) !important;
+  min-width: 120px !important;
   max-width: var(--deck-volume-slider-w) !important;
   height: var(--deck-volume-slider-h) !important;
   min-height: var(--deck-volume-slider-h) !important;
@@ -3360,8 +3363,8 @@ html[data-ytm-deck="1"] ytmusic-player-bar .menu {
 }
 
 html[data-ytm-deck="1"] ytmusic-player-bar .volume-slider {
-  width: clamp(96px, 12vw, var(--deck-volume-slider-w)) !important;
-  min-width: 96px !important;
+  width: clamp(120px, 14vw, var(--deck-volume-slider-w)) !important;
+  min-width: 120px !important;
   max-width: var(--deck-volume-slider-w) !important;
   flex-shrink: 0 !important;
 }
