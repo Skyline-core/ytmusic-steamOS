@@ -97,9 +97,38 @@ Primera vez en SteamOS (modo escritorio), si FUSE falla:
 # Sin MPRIS
 ./scripts/launch.sh --no-mpris
 
+# Sin API companion (Decky)
+./scripts/launch.sh --no-api
+
 # Logs detallados
 ./scripts/launch.sh -v
 ```
+
+## Control desde Decky Loader
+
+Compatible con el plugin [decky-youtube-music](https://github.com/artistro08/decky-youtube-music) (mismo API que th-ch/youtube-music en el puerto **26538**).
+
+### Requisitos
+
+1. **ytmusic-decky** en ejecución (AppImage o `launch.sh`) en Game Mode
+2. Plugin **YouTube Music** instalado en Decky Loader
+3. En el plugin de Decky, autorización **No authorization** (o deja el token vacío)
+
+### Uso en Steam Deck
+
+1. Añade ytmusic-decky a Steam y ábrelo en Game Mode
+2. Abre el plugin **YouTube Music** en el panel lateral de Decky
+3. Controla play/pause, volumen, shuffle, repeat y cola sin salir del juego
+
+El API escucha en `http://127.0.0.1:26538/api/v1` y WebSocket en `ws://127.0.0.1:26538/api/v1/ws`.
+
+Variables opcionales:
+
+- `YTMUSIC_DECKY_API_TOKEN` — si defines un token, el plugin Decky debe usarlo como Bearer
+- `--api-port` / `--api-host` — cambiar puerto u host
+- `--no-api` — desactivar el servidor companion
+
+**Nota:** la cola se lee de la interfaz web de YouTube Music; para verla en Decky abre el reproductor expandido (cola lateral) al menos una vez.
 
 ## Arquitectura
 
@@ -122,6 +151,16 @@ Primera vez en SteamOS (modo escritorio), si FUSE falla:
                                             └──────────────────┘
                                                       ▲
                                                       │ Steam / KDE / GNOME
+
+┌──────────────────┐   HTTP/WS :26538   ┌──────────────────┐
+│  decky-youtube-  │ ◄────────────────► │  CompanionApi    │
+│  music (Decky)   │                    │  Server (aiohttp)│
+└──────────────────┘                    └────────┬─────────┘
+                                                 │
+                                                 ▼
+                                        ┌──────────────────┐
+                                        │  PlayerState     │
+                                        └──────────────────┘
 ```
 
 ## Personalizar la interfaz

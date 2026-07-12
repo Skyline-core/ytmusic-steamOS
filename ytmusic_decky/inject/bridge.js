@@ -1258,6 +1258,107 @@ window.YTMDeck = (function () {
     return active;
   }
 
+  function readVideoId() {
+    const video = getVideo();
+    if (video?.currentSrc) {
+      const m = video.currentSrc.match(/[?&/]v[=\/]([\w-]{11})/);
+      if (m) return m[1];
+    }
+    const link = qs(
+      "ytmusic-player-bar a[href*='watch?v='], ytmusic-player-bar a[href*='youtu.be/'], ytmusic-player-bar a[href*='/watch/']"
+    );
+    if (link?.href) {
+      const m = link.href.match(/[?&]v=([\w-]{11})/) || link.href.match(/youtu\.be\/([\w-]{11})/);
+      if (m) return m[1];
+    }
+    return "";
+  }
+
+  function queueElements() {
+    return qsa(
+      "#side-panel ytmusic-queue-item, #side-panel ytmusic-playlist-panel-video-renderer, #side-panel ytmusic-player-queue-item, ytmusic-queue-item, ytmusic-playlist-panel-video-renderer"
+    );
+  }
+
+  function readQueueItemData(item) {
+    const title =
+      readText(".song-title, #title, .title", item) ||
+      readText(".song-title a, #title a", item) ||
+      "";
+    const artist = readText(".byline, .subtitle, yt-formatted-string.byline", item) || "";
+    const thumb = qs("img", item);
+    const url = thumb?.currentSrc || thumb?.src || "";
+    const selected =
+      item.hasAttribute("selected") ||
+      item.classList.contains("playing") ||
+      item.getAttribute("aria-selected") === "true";
+    const duration = readText(".duration, .badge-style-type, .length", item) || "";
+    let videoId = "";
+    const link = qs("a[href*='v='], a[href*='youtu.be/']", item);
+    if (link?.href) {
+      const m = link.href.match(/[?&]v=([\w-]{11})/) || link.href.match(/youtu\.be\/([\w-]{11})/);
+      if (m) videoId = m[1];
+    }
+    return {
+      playlistPanelVideoRenderer: {
+        title: { runs: [{ text: title }] },
+        shortBylineText: { runs: [{ text: artist }] },
+        thumbnail: { thumbnails: url ? [{ url }] : [] },
+        videoId,
+        selected,
+        lengthText: duration ? { runs: [{ text: duration }] } : undefined,
+      },
+    };
+  }
+
+  function collectQueue() {
+    return { items: queueElements().map(readQueueItemData) };
+  }
+
+  function queueJumpToIndex(index) {
+    const items = queueElements();
+    const item = items[index];
+    if (!item) return false;
+    return playQueueItem(item);
+  }
+
+  function queueRemoveAt(index) {
+    const items = queueElements();
+    const item = items[index];
+    if (!item) return false;
+    let removed = false;
+    forEachShadowRoot(item, (root) => {
+      if (removed) return;
+      const menuBtn =
+        qs("ytmusic-menu-renderer button, ytmusic-menu-renderer tp-yt-paper-icon-button", root) ||
+        qs("yt-icon-button[aria-label*='Menu'], yt-icon-button[aria-label*='Menú']", root);
+      if (!menuBtn) return;
+      menuBtn.click();
+      const popup = qs(
+        "tp-yt-iron-dropdown[opened], ytmusic-menu-popup-renderer, ytmusic-menu-renderer #menu"
+      );
+      const removeBtn = popup
+        ? qsa("tp-yt-paper-item, yt-formatted-string", popup).find((el) => {
+            const text = (el.textContent || "").toLowerCase();
+            return /remove from queue|quitar de la cola|eliminar de la cola/.test(text);
+          })
+        : null;
+      if (removeBtn) {
+        removeBtn.click();
+        removed = true;
+      }
+    });
+    return removed;
+  }
+
+  function queueClearAll() {
+    const items = queueElements();
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (!queueRemoveAt(i)) return false;
+    }
+    return true;
+  }
+
   function collectState() {
     const video = getVideo();
     const duration = video ? video.duration || 0 : 0;
@@ -1276,10 +1377,12 @@ window.YTMDeck = (function () {
       album: "",
       artUrl: readArtUrl(),
       trackId: (title + artist).replace(/\s+/g, "_").slice(0, 80),
+      videoId: readVideoId(),
       lengthUs: Math.round(duration * 1_000_000),
       positionUs: Math.round(current * 1_000_000),
       playbackStatus,
       volume: video ? video.volume : 1,
+      muted: video ? !!video.muted : false,
       canPlay: !!video,
       canPause: !!video,
       canGoNext: !!qs('ytmusic-player-bar .next-button, ytmusic-player-bar [aria-label*="Next"], ytmusic-player-bar [aria-label*="Siguiente"]'),
@@ -1287,6 +1390,7 @@ window.YTMDeck = (function () {
       canSeek: !!video && duration > 0,
       shuffle: readShuffle(),
       loopStatus: readLoopStatus(),
+      queue: collectQueue().items,
     };
   }
 
@@ -5011,11 +5115,27 @@ window.YTMDeck = (function () {
         if (video && Number.isFinite(Number(data.volume)))
           video.volume = Math.min(1, Math.max(0, Number(data.volume)));
         break;
+      case "seekTo":
+        if (video && Number.isFinite(Number(data.seconds)))
+          video.currentTime = Math.max(0, Number(data.seconds));
+        break;
+      case "toggleMute":
+        if (video) video.muted = !video.muted;
+        break;
       case "setShuffle":
         click('ytmusic-player-bar [aria-label*="Shuffle"], ytmusic-player-bar [aria-label*="Aleatorio"]');
         break;
       case "setLoop":
         click('ytmusic-player-bar [aria-label*="Repeat"], ytmusic-player-bar [aria-label*="Repetir"]');
+        break;
+      case "queueIndex":
+        if (Number.isFinite(Number(data.index))) queueJumpToIndex(Number(data.index));
+        break;
+      case "queueRemove":
+        if (Number.isFinite(Number(data.index))) queueRemoveAt(Number(data.index));
+        break;
+      case "queueClear":
+        queueClearAll();
         break;
       case "activate":
         deckActivate();
@@ -5138,6 +5258,7 @@ window.YTMDeck = (function () {
     applyDeckLayout,
     scheduleLayout,
     collectState,
+    collectQueue,
     resetTouchState,
     debugGuideScroll,
     get ready() {

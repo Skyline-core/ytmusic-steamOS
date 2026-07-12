@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from ytmusic_decky.player_state import PlayerState
 from ytmusic_decky.web.window import DeckWindow, create_application
@@ -23,7 +24,37 @@ def _start_mpris(state: PlayerState, on_command) -> None:
     server.start()
 
 
-def run(*, fullscreen: bool = True, enable_mpris: bool = True) -> int:
+def _start_companion_api(
+    state: PlayerState,
+    dispatch_command,
+    parent,
+    *,
+    host: str,
+    port: int,
+) -> None:
+    try:
+        from ytmusic_decky.api.command_bus import CommandBus
+        from ytmusic_decky.api.server import CompanionApiServer
+    except ImportError:
+        logger.warning(
+            "Companion API desactivado: instala aiohttp (pip install aiohttp)"
+        )
+        return
+
+    bus = CommandBus(dispatch_command, parent)
+    token = os.environ.get("YTMUSIC_DECKY_API_TOKEN", "").strip() or None
+    server = CompanionApiServer(state, bus, host=host, port=port, token=token)
+    server.start()
+
+
+def run(
+    *,
+    fullscreen: bool = True,
+    enable_mpris: bool = True,
+    enable_api: bool = True,
+    api_host: str = "127.0.0.1",
+    api_port: int = 26538,
+) -> int:
     state = PlayerState()
     window: DeckWindow | None = None
 
@@ -36,5 +67,21 @@ def run(*, fullscreen: bool = True, enable_mpris: bool = True) -> int:
 
     app = create_application()
     window = DeckWindow(state, on_command, fullscreen=fullscreen)
-    logger.info("ytmusic-decky iniciado (fullscreen=%s, mpris=%s)", fullscreen, enable_mpris)
+
+    if enable_api:
+        _start_companion_api(
+            state,
+            window.bridge.dispatch_command,
+            window,
+            host=api_host,
+            port=api_port,
+        )
+
+    logger.info(
+        "ytmusic-decky iniciado (fullscreen=%s, mpris=%s, api=%s:%s)",
+        fullscreen,
+        enable_mpris,
+        api_host if enable_api else "off",
+        api_port if enable_api else "-",
+    )
     return app.exec()

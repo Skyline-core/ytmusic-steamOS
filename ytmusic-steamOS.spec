@@ -43,6 +43,10 @@ hiddenimports = [
     "ytmusic_decky.web.injector",
     "ytmusic_decky.web.profile",
     "ytmusic_decky.mpris.server",
+    "ytmusic_decky.api",
+    "ytmusic_decky.api.server",
+    "ytmusic_decky.api.command_bus",
+    "aiohttp",
     "dbus",
     "dbus.mainloop",
     "gi",
@@ -50,7 +54,7 @@ hiddenimports = [
     "gi.repository.GLib",
 ]
 
-for pkg in ("PySide6", "shiboken6"):
+for pkg in ("PySide6", "shiboken6", "aiohttp"):
     tmp_ret = collect_all(pkg)
     datas += tmp_ret[0]
     binaries += tmp_ret[1]

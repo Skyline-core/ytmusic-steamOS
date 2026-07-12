@@ -27,6 +27,22 @@ def main(argv: list[str] | None = None) -> int:
         help="Desactivar servidor MPRIS (útil para depurar)",
     )
     parser.add_argument(
+        "--no-api",
+        action="store_true",
+        help="Desactivar API companion para Decky (puerto 26538)",
+    )
+    parser.add_argument(
+        "--api-host",
+        default="127.0.0.1",
+        help="Host del API companion (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--api-port",
+        type=int,
+        default=26538,
+        help="Puerto del API companion (default: 26538)",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -40,7 +56,13 @@ def main(argv: list[str] | None = None) -> int:
     # Importar Qt solo tras parsear args (--help no debe cargar WebEngine).
     from ytmusic_decky.app import run
 
-    return run(fullscreen=not args.windowed, enable_mpris=not args.no_mpris)
+    return run(
+        fullscreen=not args.windowed,
+        enable_mpris=not args.no_mpris,
+        enable_api=not args.no_api,
+        api_host=args.api_host,
+        api_port=args.api_port,
+    )
 
 
 if __name__ == "__main__":
