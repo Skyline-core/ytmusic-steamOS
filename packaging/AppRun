@@ -9,7 +9,10 @@ export YTMUSIC_APP_ROOT="${HERE}"
 source "${HERE}/setup-runtime-env.sh"
 ytmusic_setup_runtime_env
 
-# Steam Deck / Gamescope / handheld
+# Steam Deck / Gamescope / handheld — AppImage siempre en modo táctil
+export YTMUSIC_DECKY_STEAM="${YTMUSIC_DECKY_STEAM:-1}"
+export YTMUSIC_DECKY_HIDE_CURSOR="${YTMUSIC_DECKY_HIDE_CURSOR:-1}"
+export SDL_VIDEO_X11_DGAMOUSE=0
 export QT_AUTO_SCREEN_SCALE_FACTOR=1
 if [[ -f "${HERE}/detect-ui-scale.sh" ]]; then
   # shellcheck disable=SC1091

@@ -109,10 +109,49 @@ if [[ "$(uname -m)" != "x86_64" ]]; then
 fi
 
 echo "==> Arquitectura de build: $(uname -m)"
+if [[ "${YTMUSIC_BUILD_IN_DOCKER:-}" == "1" ]]; then
+  echo "==> Modo Docker: empaquetado con runtime + mksquashfs"
+else
+  echo "==> Modo nativo: appimagetool (fallback a runtime + mksquashfs si falla)"
+fi
+
+chmod +x \
+  "${ROOT}/scripts/build-appimage.sh" \
+  "${ROOT}/scripts/install-build-deps.sh" \
+  "${ROOT}/packaging/AppRun" \
+  "${ROOT}/packaging/fix-bundle-libs.sh" \
+  "${ROOT}/packaging/detect-ui-scale.sh" \
+  "${ROOT}/packaging/setup-runtime-env.sh" 2>/dev/null || true
+
+preflight_build_env() {
+  local missing=()
+  for cmd in python3 patchelf file wget mksquashfs; do
+    command -v "${cmd}" >/dev/null 2>&1 || missing+=("${cmd}")
+  done
+  if ! command -v gcc >/dev/null 2>&1 && ! command -v cc >/dev/null 2>&1; then
+    missing+=("gcc/cc")
+  fi
+  if ! python3 - <<'PY' >/dev/null 2>&1
+import os
+import sysconfig
+
+include = sysconfig.get_config_var("INCLUDEPY")
+assert include and os.path.isdir(include)
+PY
+  then
+    missing+=("python3-dev")
+  fi
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    echo "error: entorno de build incompleto tras install-build-deps: ${missing[*]}" >&2
+    echo "En Docker se instalan con packaging/Dockerfile.appimage." >&2
+    exit 1
+  fi
+}
 
 # shellcheck disable=SC1091
 source "${ROOT}/scripts/install-build-deps.sh"
 _install_build_deps
+preflight_build_env
 
 cd "${ROOT}"
 
@@ -126,7 +165,10 @@ python3 -m venv "${VENV}"
 source "${VENV}/bin/activate"
 pip install --upgrade pip wheel setuptools
 pip install pyinstaller "PySide6>=6.6.0"
-pip install dbus-python PyGObject 2>/dev/null || true
+if ! pip install dbus-python PyGObject; then
+  echo "warning: no se pudo instalar dbus-python/PyGObject (MPRIS puede quedar desactivado en runtime)" >&2
+  echo "warning: en Docker esto suele compilar porque están libdbus/glib dev headers." >&2
+fi
 pip install -e "${ROOT}" --no-deps
 
 ENTRY="${ROOT}/ytmusic_decky/__main__.py"

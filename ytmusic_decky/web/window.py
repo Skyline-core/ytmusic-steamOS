@@ -6,8 +6,8 @@ import json
 import logging
 from typing import TYPE_CHECKING, Callable
 
-from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Slot
-from PySide6.QtGui import QCursor, QGuiApplication
+from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Slot, QEvent
+from PySide6.QtGui import QCursor, QGuiApplication, QMouseEvent, QPixmap
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import (
     QWebEnginePage,
@@ -33,8 +33,21 @@ _BLANK_CURSOR_CACHE: QCursor | None = None
 def get_blank_cursor() -> QCursor:
     global _BLANK_CURSOR_CACHE
     if _BLANK_CURSOR_CACHE is None:
-        _BLANK_CURSOR_CACHE = QCursor(Qt.CursorShape.BlankCursor)
+        pix = QPixmap(1, 1)
+        pix.fill(Qt.GlobalColor.transparent)
+        _BLANK_CURSOR_CACHE = QCursor(pix, 0, 0)
     return _BLANK_CURSOR_CACHE
+
+
+def _apply_app_override_cursor() -> None:
+    app = QApplication.instance()
+    if app is None:
+        return
+    cursor = get_blank_cursor()
+    if app.overrideCursor() is None:
+        app.setOverrideCursor(cursor)
+    else:
+        app.changeOverrideCursor(cursor)
 
 
 class TouchDeckWebView(QWebEngineView):
@@ -52,6 +65,32 @@ class TouchDeckWebView(QWebEngineView):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         QTimer.singleShot(0, self._apply_blank_cursor)
+
+    def event(self, event) -> bool:
+        if _touch_ui_mode():
+            et = event.type()
+            if et in (
+                QEvent.Type.TouchBegin,
+                QEvent.Type.TouchUpdate,
+                QEvent.Type.TouchEnd,
+                QEvent.Type.TouchCancel,
+            ):
+                self._apply_blank_cursor()
+                window = self.window()
+                if isinstance(window, DeckWindow):
+                    window._hide_system_cursor()
+            elif et in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+                if isinstance(event, QMouseEvent):
+                    src = event.source()
+                    if src in (
+                        Qt.MouseEventSource.MouseEventSynthesizedBySystem,
+                        Qt.MouseEventSource.MouseEventSynthesizedByQt,
+                    ):
+                        self._apply_blank_cursor()
+                        window = self.window()
+                        if isinstance(window, DeckWindow):
+                            window._hide_system_cursor()
+        return super().event(event)
 
 
 class DeckWebPage(QWebEnginePage):
@@ -146,7 +185,7 @@ class DeckWindow(QMainWindow):
         self._inject_timer.setInterval(1500)
         self._inject_timer.timeout.connect(self._inject_all)
         self._cursor_timer = QTimer(self)
-        self._cursor_timer.setInterval(400)
+        self._cursor_timer.setInterval(120)
         self._cursor_timer.timeout.connect(self._hide_system_cursor)
 
         self.setWindowTitle("YouTube Music Deck")
@@ -186,19 +225,19 @@ class DeckWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
-        if _hide_system_cursor():
+        if _touch_ui_mode():
             self._hide_system_cursor()
             QTimer.singleShot(0, self._view._apply_blank_cursor)
             self._cursor_timer.start()
 
     def _hide_system_cursor(self) -> None:
-        if QApplication.instance() is None:
+        if not _touch_ui_mode():
             return
         cursor = get_blank_cursor()
         self.setCursor(cursor)
         if self._view is not None:
             self._view.setCursor(cursor)
-        QApplication.setOverrideCursor(cursor)
+        _apply_app_override_cursor()
 
     @property
     def bridge(self) -> WebBridge:
@@ -319,13 +358,17 @@ def _steam_touch_mode() -> bool:
     return bool(os.environ.get("SteamGameId") or os.environ.get("STEAM_RUNTIME"))
 
 
-def _hide_system_cursor() -> bool:
+def _touch_ui_mode() -> bool:
     import os
+    import sys
 
-    if os.environ.get("YTMUSIC_DECKY_HIDE_CURSOR", "").strip().lower() in ("1", "true", "yes"):
-        return True
-    if os.environ.get("YTMUSIC_DECKY_HIDE_CURSOR", "").strip().lower() in ("0", "false", "no"):
+    hide = os.environ.get("YTMUSIC_DECKY_HIDE_CURSOR", "").strip().lower()
+    if hide in ("0", "false", "no"):
         return False
+    if hide in ("1", "true", "yes"):
+        return True
+    if getattr(sys, "frozen", False):
+        return True
     return _steam_touch_mode()
 
 
@@ -347,8 +390,7 @@ def create_application() -> QApplication:
         QGuiApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL, True)
         QGuiApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
 
-    # Steam Big Picture / Gamescope: touch real; en escritorio no tocar la síntesis de ratón.
-    if _steam_touch_mode():
+    if _touch_ui_mode():
         QGuiApplication.setAttribute(
             Qt.ApplicationAttribute.AA_SynthesizeMouseForUnhandledTouchEvents, False
         )
@@ -365,4 +407,6 @@ def create_application() -> QApplication:
     app = QApplication([])
     app.setApplicationName("ytmusic-decky")
     app.setDesktopFileName("ytmusic-decky")
+    if _touch_ui_mode():
+        _apply_app_override_cursor()
     return app

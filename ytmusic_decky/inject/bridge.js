@@ -6,9 +6,12 @@ window.YTMDeck = (function () {
   const POLL_MS = 3500;
   const POLL_HEAVY_EVERY = 3;
   const SCROLL_DRAG_THRESHOLD = 10;
+  const SCROLL_AXIS_RATIO = 1.15;
   const SCROLL_DRAG_SUPPRESS_MS = 380;
-  const QUEUE_LONG_PRESS_MS = 600;
+  const QUEUE_LONG_PRESS_MS = 750;
   const QUEUE_MOVE_SLOP = 14;
+  const QUEUE_REORDER_MAX_MOVE = 6;
+  const QUEUE_VERTICAL_CANCEL = 5;
   const QUEUE_EDGE_SCROLL_PX = 72;
   const QUEUE_EDGE_SCROLL_STEP = 22;
   const QUEUE_TAP_MS = 320;
@@ -27,6 +30,84 @@ window.YTMDeck = (function () {
   let sideTabUserPicked = false;
   let activeQueueMenuProxy = null;
   let pollTick = 0;
+  const touchResetHooks = [];
+
+  function registerTouchReset(fn) {
+    if (typeof fn === "function") touchResetHooks.push(fn);
+  }
+
+  function releaseAllPointerCaptures() {
+    const nodes = new Set();
+    [
+      document.documentElement,
+      document.body,
+      qs("#content"),
+      qs("ytmusic-browse-response"),
+      qs("#side-panel"),
+      qs("#side-panel ytmusic-queue-tab"),
+      qs("#side-panel ytmusic-tab-renderer"),
+      qs("#guide-content"),
+      qs("tp-yt-app-drawer#guide"),
+      ...qsa("ytmusic-carousel #items, ytmusic-carousel .items-wrapper"),
+    ].forEach((node) => {
+      if (node) nodes.add(node);
+    });
+    nodes.forEach((node) => {
+      if (typeof node.releasePointerCapture !== "function") return;
+      for (let id = 1; id <= 12; id++) {
+        try {
+          node.releasePointerCapture(id);
+        } catch (_) {
+          /* noop */
+        }
+      }
+    });
+  }
+
+  function resetTouchState(_reason) {
+    for (const fn of touchResetHooks) {
+      try {
+        fn();
+      } catch (_) {
+        /* noop */
+      }
+    }
+    releaseAllPointerCaptures();
+    setQueueReordering(false);
+    document.documentElement.classList.remove("ytm-deck-dragging");
+  }
+
+  function bindAppLifecycleTouchReset() {
+    if (window.__YTM_DECK_TOUCH_LIFECYCLE__) return;
+    window.__YTM_DECK_TOUCH_LIFECYCLE__ = true;
+
+    const onHide = () => resetTouchState("lifecycle-hide");
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") onHide();
+    });
+    window.addEventListener("blur", onHide);
+    window.addEventListener("pagehide", onHide);
+    document.addEventListener("freeze", onHide);
+    window.addEventListener("focus", () => resetTouchState("lifecycle-focus"));
+  }
+
+  function bindTouchCursorHide() {
+    if (window.__YTM_DECK_TOUCH_CURSOR_HIDE__) return;
+    if (
+      !window.__YTM_DECK_TOUCH__ &&
+      !window.__YTM_DECK_STEAM__ &&
+      !window.matchMedia("(pointer: coarse)").matches
+    ) {
+      return;
+    }
+    window.__YTM_DECK_TOUCH_CURSOR_HIDE__ = true;
+    const hide = () => {
+      document.documentElement.style.setProperty("cursor", "none", "important");
+      if (document.body) document.body.style.setProperty("cursor", "none", "important");
+    };
+    document.addEventListener("touchstart", hide, { capture: true, passive: true });
+    document.addEventListener("pointerdown", hide, { capture: true, passive: true });
+  }
 
   function qs(sel, root) {
     return (root || document).querySelector(sel);
@@ -62,9 +143,131 @@ window.YTMDeck = (function () {
     const btn = qs(
       "ytmusic-player-bar .toggle-player-page-button yt-icon-button, ytmusic-player-bar .toggle-player-page-button button"
     );
-    if (!btn) return false;
-    const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
-    return /cerrar|close|collapse|contraer/.test(aria);
+    if (btn) {
+      const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
+      if (/cerrar|close|collapse|contraer/.test(aria)) return true;
+    }
+
+    const page = qs("ytmusic-player-page, #player-page");
+    if (!page || !isVisible(page)) return false;
+    if (document.documentElement.classList.contains("ytm-deck-playing")) return true;
+    const rect = page.getBoundingClientRect();
+    return rect.width > 120 && rect.height > 120;
+  }
+
+  function getPlayerPageToggleButton(bar) {
+    if (!bar) bar = qs("ytmusic-player-bar");
+    if (!bar) return null;
+    return (
+      qs(".toggle-player-page-button yt-icon-button", bar) ||
+      qs(".toggle-player-page-button tp-yt-paper-icon-button", bar) ||
+      qs(".toggle-player-page-button button", bar)
+    );
+  }
+
+  function dispatchNativeClick(el) {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const base = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      clientX: x,
+      clientY: y,
+      view: window,
+    };
+    const pointer = { ...base, pointerId: 1, pointerType: "touch", isPrimary: true };
+    el.dispatchEvent(new PointerEvent("pointerdown", pointer));
+    el.dispatchEvent(new PointerEvent("pointerup", pointer));
+    el.dispatchEvent(new MouseEvent("click", base));
+  }
+
+  function invokePlayerPageApis() {
+    const playerBar = qs("ytmusic-player-bar");
+    const app = qs("ytmusic-app");
+    const calls = [
+      () => playerBar?.togglePlayerPage?.(),
+      () => playerBar?.showPlayerPage?.(),
+      () => playerBar?.openPlayerPage?.(),
+      () => app?.togglePlayerPage?.(),
+      () => app?.showPlayerPage?.(),
+      () => app?.openPlayerPage?.(),
+      () => app?.setPageType?.("PLAYER_PAGE"),
+    ];
+    for (const call of calls) {
+      try {
+        call();
+      } catch (_) {}
+    }
+  }
+
+  function enterPlayingViewForced() {
+    setPlayingMode(true);
+    fixPlayerPageLayout();
+    buildHeroUi();
+    mountSidePanel();
+    ensureQueueTab();
+    updateDeckUi();
+  }
+
+  function exitPlayingViewForced() {
+    sideTabUserPicked = false;
+    setPlayingMode(false);
+    removeHeroUi();
+    updateDeckUi();
+  }
+
+  function openPlayerPage() {
+    if (isPlayerPageOpen()) {
+      syncPlayingView();
+      return true;
+    }
+
+    const bar = qs("ytmusic-player-bar");
+    const toggleHost = qs(".toggle-player-page-button", bar);
+    const btn = getPlayerPageToggleButton(bar);
+
+    invokePlayerPageApis();
+    [toggleHost, btn].filter(Boolean).forEach((el) => {
+      dispatchNativeClick(el);
+      el.click();
+    });
+
+    if (!isPlayerPageOpen()) enterPlayingViewForced();
+    else syncPlayingView();
+
+    setTimeout(syncPlayingView, 250);
+    setTimeout(syncPlayingView, 700);
+    return true;
+  }
+
+  function closePlayerPage() {
+    if (!isPlayerPageOpen()) return false;
+
+    const bar = qs("ytmusic-player-bar");
+    const btn = getPlayerPageToggleButton(bar);
+    const toggleHost = qs(".toggle-player-page-button", bar);
+    const aria = (btn?.getAttribute("aria-label") || "").toLowerCase();
+    if (btn && /cerrar|close|collapse|contraer/.test(aria)) {
+      dispatchNativeClick(btn);
+      btn.click();
+    } else if (toggleHost) {
+      dispatchNativeClick(toggleHost);
+      toggleHost.click();
+    }
+
+    exitPlayingViewForced();
+    setTimeout(syncPlayingView, 0);
+    setTimeout(syncPlayingView, 350);
+    return true;
+  }
+
+  function togglePlayerPageView() {
+    if (isPlayerPageOpen()) return closePlayerPage();
+    return openPlayerPage();
   }
 
   function isPlayingView() {
@@ -76,24 +279,122 @@ window.YTMDeck = (function () {
     return false;
   }
 
-  function readText(sel) {
-    const el = qs(sel);
+  function readText(sel, root) {
+    const el = root ? (root.querySelector ? root.querySelector(sel) : null) : qs(sel);
     return el ? (el.textContent || "").trim() : "";
   }
 
-  function readLivePlayerBarTitle(bar) {
+  function cleanArtistText(text) {
+    if (!text) return "";
+    const t = text.replace(/\s+/g, " ").trim();
+    if (/^e$/i.test(t)) return "";
+    return t;
+  }
+
+  function parseArtistLabel(text) {
+    const t = cleanArtistText(text);
+    if (!t) return "";
+    return t.split("•")[0].trim();
+  }
+
+  function extractArtistFromByline(el) {
+    if (!el) return "";
+    if (el.matches?.("yt-formatted-string.byline, yt-formatted-string.subtitle, .byline, .subtitle")) {
+      const direct = parseArtistLabel(el.textContent || "");
+      if (direct) return direct;
+    }
+    const links = qsa("a.yt-simple-endpoint, yt-formatted-string", el);
+    for (const node of links) {
+      if (node.closest("ytmusic-inline-badge-renderer, ytmusic-badge-supported-renderer")) continue;
+      const t = parseArtistLabel(node.textContent || "");
+      if (t) return t;
+    }
+    const clone = el.cloneNode(true);
+    clone
+      .querySelectorAll(
+        "ytmusic-inline-badge-renderer, ytmusic-badge-supported-renderer, ytmusic-badge-renderer, [class*='badge']"
+      )
+      .forEach((node) => node.remove());
+    return parseArtistLabel(clone.textContent || "");
+  }
+
+  function readQueueArtist() {
+    const selectors = [
+      "ytmusic-queue-item[selected] .byline",
+      "ytmusic-playlist-panel-video-renderer[selected] .byline",
+      "ytmusic-player-queue-item[selected] .byline",
+      "ytmusic-queue-item[selected] .subtitle",
+      "ytmusic-playlist-panel-video-renderer[selected] .subtitle",
+      "ytmusic-queue-item[selected] yt-formatted-string.byline",
+      "ytmusic-playlist-panel-video-renderer[selected] yt-formatted-string.byline",
+    ];
+    for (const sel of selectors) {
+      const text = parseArtistLabel(readText(sel));
+      if (text) return text;
+    }
+    return "";
+  }
+
+  function readLivePlayerBarArtist(bar) {
     if (!bar) bar = qs("ytmusic-player-bar");
     if (!bar) return "";
 
-    const nativeNodes = qsa(
-      ".left-controls .title yt-formatted-string, .left-controls .song-info yt-formatted-string, " +
-        ".middle-controls .title yt-formatted-string, .middle-controls .song-info yt-formatted-string, " +
-        ".left-controls .title a.yt-simple-endpoint, .middle-controls .title a.yt-simple-endpoint",
-      bar
-    );
-    for (const node of nativeNodes) {
-      if (node.closest(".deck-title-marquee")) continue;
-      const text = (node.textContent || "").trim();
+    const bylineSelectors = [
+      ".middle-controls .byline",
+      ".middle-controls .content-info-wrapper .byline",
+      ".middle-controls .song-info .byline",
+      ".left-controls .content-info-wrapper .byline",
+      ".left-controls .song-info .byline",
+      ".left-controls .byline",
+      ".left-controls .subtitle",
+      ".song-info .byline",
+      ".content-info-wrapper .byline",
+    ];
+    for (const sel of bylineSelectors) {
+      const text = extractArtistFromByline(qs(sel, bar));
+      if (text) return text;
+    }
+
+    return readQueueArtist();
+  }
+
+  function readMarqueeTitle(root) {
+    if (!root) root = document;
+    const marquee = qs(".deck-title-marquee[data-deck-original-text]", root);
+    if (marquee?.dataset.deckOriginalText?.trim()) {
+      return marquee.dataset.deckOriginalText.trim();
+    }
+    const primary = qs(".deck-title-marquee-text", root);
+    if (primary?.textContent?.trim()) return primary.textContent.trim();
+    return "";
+  }
+
+  function readLivePlayerBarTitle(bar, opts) {
+    if (!bar) bar = qs("ytmusic-player-bar");
+    if (!bar) return "";
+
+    if (!opts?.skipDeckMedia) {
+      const fromDeckMedia = readText(".deck-media-title", bar);
+      if (fromDeckMedia) return fromDeckMedia;
+
+      const fromMarquee = readMarqueeTitle(bar);
+      if (fromMarquee) return fromMarquee;
+    }
+
+    const titleSelectors = [
+      ".middle-controls .title",
+      ".middle-controls .song-info .title",
+      ".left-controls .content-info-wrapper .title",
+      ".left-controls .song-info .title",
+      ".middle-controls .title yt-formatted-string",
+      ".left-controls .title yt-formatted-string",
+      ".left-controls .title a.yt-simple-endpoint",
+      ".middle-controls .title a.yt-simple-endpoint",
+    ];
+    for (const sel of titleSelectors) {
+      const el = qs(sel, bar);
+      if (!el || el.closest(".deck-media-title, .deck-title-marquee")) continue;
+      const text = (el.textContent || "").trim();
       if (text) return text;
     }
 
@@ -116,10 +417,14 @@ window.YTMDeck = (function () {
   }
 
   function readBarArtist() {
-    return (
-      readText("ytmusic-player-bar .song-info .byline") ||
-      readText("ytmusic-player-bar .middle-controls .byline") ||
-      readText("ytmusic-player-bar .byline")
+    const live = readLivePlayerBarArtist();
+    if (live) return live;
+    return cleanArtistText(
+      readText("ytmusic-player-bar .left-controls .song-info .byline") ||
+        readText("ytmusic-player-bar .left-controls .content-info-wrapper .byline") ||
+        readText("ytmusic-player-bar .song-info .byline") ||
+        readText("ytmusic-player-bar .middle-controls .byline") ||
+        readText("ytmusic-player-bar .byline")
     );
   }
 
@@ -140,12 +445,14 @@ window.YTMDeck = (function () {
   }
 
   function readSongArtist() {
-    if (isAdPlaying()) {
-      const queueArtist = readText(
-        "ytmusic-queue-item[selected] .byline, ytmusic-playlist-panel-video-renderer[selected] .byline"
-      );
-      if (queueArtist) return queueArtist;
-    }
+    const live = readLivePlayerBarArtist();
+    if (live) return live;
+
+    const queueArtist = readQueueArtist();
+    if (queueArtist) return queueArtist;
+
+    if (isAdPlaying()) return "";
+
     return readBarArtist();
   }
 
@@ -860,9 +1167,43 @@ window.YTMDeck = (function () {
     el.style.setProperty("flex", "0 0 0", "important");
   }
 
+  function shouldRelocatePlayerBarThumb(thumb, bar) {
+    if (!thumb || !bar?.contains(thumb)) return false;
+    if (thumb.closest(".deck-media-thumb, #side-panel, ytmusic-queue-item, ytmusic-playlist-panel-video-renderer")) {
+      return false;
+    }
+    return !!thumb.closest("ytmusic-player-bar");
+  }
+
+  function ensureDeckMediaThumbContent(bar, thumbWrap) {
+    if (!bar || !thumbWrap) return;
+
+    const hasNativeThumb = qs(
+      ".thumbnail-image-wrapper, .song-image, ytmusic-thumbnail-renderer, yt-img-shadow.image, yt-img-shadow#thumbnail",
+      thumbWrap
+    );
+    if (hasNativeThumb) return;
+
+    const artUrl = readArtUrl();
+    if (!artUrl) return;
+
+    let img = qs("img.deck-media-thumb-fallback", thumbWrap);
+    if (!img) {
+      img = document.createElement("img");
+      img.className = "deck-media-thumb-fallback image";
+      img.alt = "";
+      thumbWrap.appendChild(img);
+    }
+    if (img.src !== artUrl) img.src = artUrl;
+  }
+
   function syncPlayerBarThumbnail() {
     const bar = qs("ytmusic-player-bar");
     if (!bar) return;
+
+    ensureDeckMediaInfo(bar);
+    const thumbWrap = qs(".deck-media-thumb", bar);
+    ensureDeckMediaThumbContent(bar, thumbWrap);
 
     const active = isMediaActive();
     const thumbSelectors =
@@ -870,13 +1211,33 @@ window.YTMDeck = (function () {
 
     qsa(thumbSelectors, bar).forEach((el) => {
       const img = qs("img", el);
-      const show = active && isValidArtImg(img);
+      const inDeckThumb = !!el.closest(".deck-media-thumb");
+      const show = active && inDeckThumb && isValidArtImg(img);
       setPlayerBarThumbVisible(el, show);
     });
 
+    if (thumbWrap) {
+      const img = qs("img", thumbWrap);
+      const showWrap = active && isValidArtImg(img);
+      if (showWrap) {
+        thumbWrap.style.removeProperty("display");
+        thumbWrap.style.removeProperty("visibility");
+        thumbWrap.style.removeProperty("width");
+        thumbWrap.style.removeProperty("height");
+        thumbWrap.style.removeProperty("min-width");
+        thumbWrap.style.removeProperty("min-height");
+        thumbWrap.style.removeProperty("max-width");
+        thumbWrap.style.removeProperty("max-height");
+        thumbWrap.style.removeProperty("flex");
+        thumbWrap.style.removeProperty("overflow");
+        thumbWrap.style.removeProperty("pointer-events");
+      }
+    }
+
     qsa("img.image, img#img", bar).forEach((img) => {
       if (!img.closest(".thumbnail-image-wrapper, .song-image, ytmusic-thumbnail-renderer, yt-img-shadow")) {
-        setPlayerBarThumbVisible(img, active && isValidArtImg(img));
+        const inDeckThumb = !!img.closest(".deck-media-thumb");
+        setPlayerBarThumbVisible(img, active && inDeckThumb && isValidArtImg(img));
       }
     });
   }
@@ -1009,7 +1370,11 @@ window.YTMDeck = (function () {
     root.style.setProperty("--deck-gap", deckPx(10, scale));
     root.style.setProperty("--deck-col-gap", deckPx(6, scale));
     root.style.setProperty("--deck-content-pad", deckPx(12, scale));
-    root.style.setProperty("--deck-volume-slider-w", wide ? "128px" : deckPx(150, scale));
+    root.style.setProperty("--deck-volume-slider-w", wide ? "88px" : deckPx(92, scale));
+    root.style.setProperty(
+      "--deck-media-text-min",
+      `clamp(${deckPx(240, scale)}, 62vw, ${deckPx(620, scale)})`
+    );
     root.style.setProperty("--deck-fs-nav", deckPx(18, scale));
     root.style.setProperty("--deck-fs-chip", deckPx(16, scale));
     root.style.setProperty("--deck-fs-body", deckPx(15, scale));
@@ -1017,6 +1382,26 @@ window.YTMDeck = (function () {
     root.style.setProperty("--deck-fs-section", deckPx(24, scale));
     root.style.setProperty("--deck-fs-player-title", deckPx(17, scale));
     root.style.setProperty("--deck-fs-player-artist", deckPx(15, scale));
+    root.style.setProperty("--deck-fs-queue-title", deckPx(20, scale));
+    root.style.setProperty("--deck-fs-queue-meta", deckPx(17, scale));
+    root.style.setProperty("--deck-fs-queue-tab", deckPx(17, scale));
+    root.style.setProperty("--deck-fs-queue-header-title", deckPx(15, scale));
+    root.style.setProperty("--deck-fs-queue-header-subtitle", deckPx(18, scale));
+    root.style.setProperty("--deck-queue-thumb", deckPx(56, scale));
+    root.style.setProperty("--deck-queue-item-min-h", deckPx(72, scale));
+    root.style.setProperty("--deck-queue-item-pad-y", deckPx(10, scale));
+    root.style.setProperty("--deck-queue-item-pad-x", deckPx(10, scale));
+    root.style.setProperty("--deck-queue-item-gap", "0px");
+    root.style.setProperty("--deck-queue-item-radius", deckPx(14, scale));
+    root.style.setProperty("--deck-queue-menu-size", deckPx(46, scale));
+    root.style.setProperty("--deck-queue-menu-icon", deckPx(26, scale));
+    root.style.setProperty("--deck-queue-duration-min", deckPx(44, scale));
+    root.style.setProperty("--deck-queue-actions-min", deckPx(108, scale));
+    root.style.setProperty("--deck-queue-panel-pad-y", deckPx(14, scale));
+    root.style.setProperty("--deck-queue-panel-pad-x", deckPx(16, scale));
+    root.style.setProperty("--deck-queue-tab-min-h", deckPx(52, scale));
+    root.style.setProperty("--deck-queue-header-min-h", deckPx(56, scale));
+    root.style.setProperty("--deck-avatar-size", deckPx(48, scale));
     root.style.setProperty("--deck-player-progress-knob", deckPx(26, scale));
     root.style.setProperty("--deck-volume-knob", deckPx(24, scale));
     root.style.setProperty("--deck-volume-slider-h", deckPx(40, scale));
@@ -1024,11 +1409,18 @@ window.YTMDeck = (function () {
     root.style.setProperty("--deck-player-progress-inset-right", deckPx(42, scale));
     root.classList.toggle("ytm-deck-wide", wide);
     root.classList.toggle("ytm-deck-large-ui", scale >= 1.28);
-    root.classList.toggle(
-      "ytm-deck-touch",
-      wide || window.matchMedia("(pointer: coarse)").matches || (navigator.maxTouchPoints || 0) > 0
-    );
-    root.classList.toggle("ytm-deck-steam", !!window.__YTM_DECK_STEAM__);
+    const touchUi =
+      !!window.__YTM_DECK_TOUCH__ ||
+      !!window.__YTM_DECK_STEAM__ ||
+      wide ||
+      window.matchMedia("(pointer: coarse)").matches ||
+      (navigator.maxTouchPoints || 0) > 0;
+    root.classList.toggle("ytm-deck-touch", touchUi);
+    root.classList.toggle("ytm-deck-steam", !!window.__YTM_DECK_STEAM__ || !!window.__YTM_DECK_TOUCH__);
+    if (touchUi) {
+      root.style.cursor = "none";
+      document.body && (document.body.style.cursor = "none");
+    }
 
     const drawer = qs("tp-yt-app-drawer#guide");
     if (drawer) {
@@ -1041,6 +1433,34 @@ window.YTMDeck = (function () {
     if (changed) {
       lastPlaying = playing;
       document.documentElement.classList.toggle("ytm-deck-playing", playing);
+      syncAccountBarPlacement();
+    }
+  }
+
+  function getAccountBar() {
+    return (
+      qs("ytmusic-nav-bar #button-bar") ||
+      qs("#button-bar") ||
+      qs("ytmusic-nav-bar #right-content") ||
+      qs("#right-content")
+    );
+  }
+
+  function syncAccountBarPlacement() {
+    const accountBar = getAccountBar();
+    const navBar = qs("ytmusic-nav-bar");
+    if (!accountBar || !navBar) return;
+
+    const playing = document.documentElement.classList.contains("ytm-deck-playing");
+    const guideSlot = qs("#guide-content > .deck-guide-account-bar");
+
+    if (playing) {
+      if (accountBar.parentElement !== navBar) navBar.appendChild(accountBar);
+      return;
+    }
+
+    if (guideSlot && accountBar.parentElement !== guideSlot) {
+      guideSlot.appendChild(accountBar);
     }
   }
 
@@ -1111,54 +1531,201 @@ window.YTMDeck = (function () {
   }
 
   function ensureAccountMenuAccess() {
-    const buttonBar = qs("ytmusic-nav-bar #button-bar");
-    if (!buttonBar) return;
-    buttonBar.style.display = "flex";
-    buttonBar.style.visibility = "visible";
-    buttonBar.style.pointerEvents = "auto";
-    buttonBar.style.zIndex = "80";
-    mountGuideAccountBar(buttonBar);
+    const accountBar = getAccountBar();
+    if (!accountBar) return;
+    accountBar.style.display = "flex";
+    accountBar.style.visibility = "visible";
+    accountBar.style.pointerEvents = "auto";
+    accountBar.style.touchAction = "manipulation";
+    accountBar.style.zIndex = "80";
+    mountGuideAccountBar(accountBar);
+    syncAccountBarPlacement();
+    syncGuideAccountBarLayout();
   }
 
-  function mountGuideAccountBar(buttonBar) {
+  function mountGuideAccountBar(accountBar) {
     const guideContent = qs("tp-yt-app-drawer#guide #guide-content");
-    if (!guideContent || !buttonBar) return;
+    if (!guideContent || !accountBar) return;
 
-    let slot = qs(".deck-guide-account-bar", guideContent);
+    const spacer = qs("#guide-spacer");
+    if (spacer) {
+      spacer.style.display = "none";
+      spacer.style.height = "0";
+      spacer.style.marginTop = "0";
+      spacer.style.marginBottom = "0";
+      spacer.style.padding = "0";
+    }
+
+    const contentContainer = qs("tp-yt-app-drawer#guide #contentContainer");
+    if (contentContainer) {
+      contentContainer.style.padding = "0";
+      contentContainer.style.paddingTop = "0";
+      contentContainer.style.top = "0";
+      contentContainer.style.position = "relative";
+      contentContainer.style.height = "100%";
+    }
+
+    const staleTopBar = qs(".deck-guide-top-bar", guideContent);
+    if (staleTopBar) staleTopBar.remove();
+
+    let slot = qs("#guide-content > .deck-guide-account-bar");
     if (!slot) {
       slot = document.createElement("div");
       slot.className = "deck-guide-account-bar";
       guideContent.insertBefore(slot, guideContent.firstChild);
     }
 
-    if (buttonBar.parentElement !== slot) {
-      slot.appendChild(buttonBar);
+    let brand = qs(".deck-guide-brand", slot);
+    if (!brand) {
+      brand = document.createElement("div");
+      brand.className = "deck-guide-brand";
+      slot.insertBefore(brand, slot.firstChild);
     }
 
-    buttonBar.style.position = "relative";
-    buttonBar.style.top = "auto";
-    buttonBar.style.right = "auto";
-    buttonBar.style.left = "auto";
-    buttonBar.style.height = "auto";
-    buttonBar.style.minHeight = "48px";
+    const logo =
+      qs("ytmusic-logo-renderer, #logo, ytmusic-logo", brand) ||
+      qs("ytmusic-nav-bar .center-content ytmusic-logo-renderer") ||
+      qs("ytmusic-nav-bar ytmusic-logo-renderer") ||
+      qs("ytmusic-nav-bar #logo") ||
+      qs("ytmusic-nav-bar ytmusic-logo");
+    if (logo && logo.parentElement !== brand) {
+      brand.appendChild(logo);
+    }
 
-    const avatar = qs("#avatar-btn", buttonBar);
-    const avatarImg = qs("#avatar-btn yt-img-shadow, yt-img-shadow#avatar, yt-img-shadow", buttonBar);
-    [avatar, avatarImg].forEach((el) => {
-      if (!el) return;
-      el.style.width = "48px";
-      el.style.height = "48px";
-      el.style.minWidth = "48px";
-      el.style.minHeight = "48px";
-      el.style.borderRadius = "50%";
-      el.style.overflow = "hidden";
+    qsa("ytmusic-cast-button", slot).forEach((castBtn) => {
+      castBtn.style.display = "none";
+      castBtn.style.visibility = "hidden";
+      castBtn.style.pointerEvents = "none";
     });
-    qsa("#avatar-btn img, yt-img-shadow img", buttonBar).forEach((img) => {
+
+    if (
+      !document.documentElement.classList.contains("ytm-deck-playing") &&
+      accountBar.parentElement !== slot
+    ) {
+      slot.appendChild(accountBar);
+    }
+
+    const inGuideSlot = accountBar.parentElement === slot;
+    if (inGuideSlot) {
+      accountBar.style.position = "";
+      accountBar.style.top = "";
+      accountBar.style.right = "";
+      accountBar.style.left = "";
+      accountBar.style.height = "";
+      accountBar.style.minHeight = "";
+      accountBar.style.transform = "";
+      accountBar.style.flex = "";
+      accountBar.style.alignItems = "center";
+      accountBar.style.justifyContent = "flex-end";
+      accountBar.style.gap = "10px";
+    } else {
+      accountBar.style.position = "relative";
+      accountBar.style.top = "auto";
+      accountBar.style.right = "auto";
+      accountBar.style.left = "auto";
+      accountBar.style.height = "auto";
+      accountBar.style.minHeight = "48px";
+      accountBar.style.alignItems = "center";
+      accountBar.style.justifyContent = "flex-end";
+      accountBar.style.gap = "10px";
+      accountBar.style.flex = "0 0 auto";
+    }
+
+    qsa(".history-icon-button", accountBar).forEach((el) => {
+      el.style.display = "none";
+    });
+
+    const size =
+      getComputedStyle(document.documentElement).getPropertyValue("--deck-avatar-size").trim() || "48px";
+    const avatarTargets = qsa(
+      "#avatar-btn, ytmusic-settings-button, ytmusic-settings-button yt-icon-button, " +
+        "#avatar-btn yt-img-shadow, ytmusic-settings-button yt-img-shadow, yt-img-shadow#avatar, yt-img-shadow",
+      accountBar
+    );
+    avatarTargets.forEach((el) => {
+      if (!el) return;
+      el.style.width = size;
+      el.style.height = size;
+      el.style.minWidth = size;
+      el.style.minHeight = size;
+      if (el.matches("yt-img-shadow, #avatar-btn, ytmusic-settings-button, yt-icon-button")) {
+        el.style.borderRadius = "50%";
+        el.style.overflow = "hidden";
+      }
+      el.style.pointerEvents = "auto";
+      el.style.touchAction = "manipulation";
+    });
+    qsa(
+      "#avatar-btn img, ytmusic-settings-button img, ytmusic-settings-button yt-img-shadow img, yt-img-shadow img",
+      accountBar
+    ).forEach((img) => {
       img.style.width = "100%";
       img.style.height = "100%";
       img.style.objectFit = "cover";
       img.style.borderRadius = "50%";
+      img.style.pointerEvents = "none";
     });
+
+    syncGuideAccountBarLayout();
+  }
+
+  function syncGuideAccountBarLayout() {
+    const slot = qs("#guide-content > .deck-guide-account-bar");
+    if (!slot || document.documentElement.classList.contains("ytm-deck-playing")) return;
+
+    const spacer = qs("#guide-spacer");
+    if (spacer) {
+      spacer.style.display = "none";
+      spacer.style.height = "0";
+      spacer.style.marginTop = "0";
+    }
+
+    const contentContainer = qs("tp-yt-app-drawer#guide #contentContainer");
+    if (contentContainer) {
+      contentContainer.style.padding = "0";
+      contentContainer.style.paddingTop = "0";
+      contentContainer.style.top = "0";
+    }
+
+    slot.style.height = "";
+    slot.style.minHeight = "";
+    slot.style.maxHeight = "";
+    slot.style.padding = "";
+
+    const accountBar = qs("#right-content, #button-bar", slot);
+    if (accountBar) {
+      accountBar.style.position = "";
+      accountBar.style.top = "";
+      accountBar.style.right = "";
+      accountBar.style.left = "";
+      accountBar.style.height = "";
+      accountBar.style.minHeight = "";
+      accountBar.style.transform = "";
+      accountBar.style.flex = "";
+    }
+
+    const brand = qs(".deck-guide-brand", slot);
+    if (!brand) return;
+
+    const logoLeaf =
+      qs("img.logo", brand) ||
+      qs("ytmusic-logo", brand) ||
+      qs("ytmusic-logo-renderer", brand) ||
+      qs("#logo", brand);
+    if (!logoLeaf) return;
+
+    logoLeaf.style.transform = "";
+    logoLeaf.style.marginTop = "0";
+    logoLeaf.style.marginBottom = "0";
+
+    const slotBox = slot.getBoundingClientRect();
+    const logoBox = logoLeaf.getBoundingClientRect();
+    if (!slotBox.height || !logoBox.height) return;
+
+    const delta = slotBox.top + slotBox.height / 2 - (logoBox.top + logoBox.height / 2);
+    if (Math.abs(delta) >= 1) {
+      logoLeaf.style.transform = `translateY(${Math.round(delta)}px)`;
+    }
   }
 
   function forEachShadowRoot(node, visit) {
@@ -1177,12 +1744,157 @@ window.YTMDeck = (function () {
     }
   }
 
+  function getQueueThumbPx() {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue("--deck-queue-thumb").trim();
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : 64;
+  }
+
+  function injectQueueThumbnailStyle(host) {
+    if (!host?.shadowRoot) return;
+    const thumb = `${getQueueThumbPx()}px`;
+    const old = host.shadowRoot.querySelector("[data-deck-queue-thumb-style]");
+    if (old?.getAttribute("data-deck-thumb-size") === thumb) return;
+    if (old) old.remove();
+    const style = document.createElement("style");
+    style.setAttribute("data-deck-queue-thumb-style", "2");
+    style.setAttribute("data-deck-thumb-size", thumb);
+    style.textContent = `
+      :host {
+        width: ${thumb} !important;
+        height: ${thumb} !important;
+        min-width: ${thumb} !important;
+        min-height: ${thumb} !important;
+        max-width: ${thumb} !important;
+        max-height: ${thumb} !important;
+        flex: 0 0 ${thumb} !important;
+        --ytmusic-thumbnail-size: ${thumb} !important;
+        --ytmusic-thumbnail-width: ${thumb} !important;
+        --ytmusic-thumbnail-height: ${thumb} !important;
+      }
+      #img,
+      img,
+      #image,
+      yt-img-shadow,
+      yt-img-shadow img {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+        border-radius: 4px !important;
+      }
+    `;
+    host.shadowRoot.appendChild(style);
+  }
+
+  function syncPlayerQueueItem(item) {
+    const thumb = `${getQueueThumbPx()}px`;
+    item.style.setProperty("--ytmusic-player-queue-item-thumbnail-size", thumb, "important");
+    item.style.setProperty("--ytmusic-thumbnail-size", thumb);
+    item.style.setProperty("--deck-queue-thumb", thumb);
+
+    qsa(
+      ".left-items, yt-img-shadow.thumbnail, .thumbnail, ytmusic-item-thumbnail-overlay-renderer.thumbnail-overlay",
+      item
+    ).forEach((el) => {
+      el.style.setProperty("width", thumb, "important");
+      el.style.setProperty("height", thumb, "important");
+      el.style.setProperty("min-width", thumb, "important");
+      el.style.setProperty("min-height", thumb, "important");
+      el.style.setProperty("max-width", thumb, "important");
+      el.style.setProperty("max-height", thumb, "important");
+      el.style.setProperty("flex", `0 0 ${thumb}`, "important");
+    });
+
+    const songInfo = qs(".song-info", item);
+    if (songInfo) {
+      songInfo.style.setProperty("display", "flex", "important");
+      songInfo.style.setProperty("flex-direction", "column", "important");
+      songInfo.style.setProperty("justify-content", "center", "important");
+      songInfo.style.setProperty("align-self", "center", "important");
+      songInfo.style.setProperty("border", "none", "important");
+      songInfo.style.setProperty("box-shadow", "none", "important");
+      songInfo.style.setProperty("min-height", "0", "important");
+    }
+  }
+
+  function syncQueueItemThumbnail(item) {
+    if (item?.tagName === "YTMUSIC-PLAYER-QUEUE-ITEM") {
+      syncPlayerQueueItem(item);
+      return;
+    }
+
+    const thumb = `${getQueueThumbPx()}px`;
+    item.style.setProperty("--ytmusic-thumbnail-size", thumb);
+    item.style.setProperty("--deck-queue-thumb", thumb);
+
+    forEachShadowRoot(item, (root) => {
+      qsa("ytmusic-thumbnail-renderer, #thumbnail, yt-img-shadow", root).forEach((el) => {
+        el.style.setProperty("--ytmusic-thumbnail-size", thumb);
+        el.style.setProperty("width", thumb, "important");
+        el.style.setProperty("height", thumb, "important");
+        el.style.setProperty("min-width", thumb, "important");
+        el.style.setProperty("min-height", thumb, "important");
+        el.style.setProperty("max-width", thumb, "important");
+        el.style.setProperty("max-height", thumb, "important");
+        el.style.setProperty("flex", `0 0 ${thumb}`, "important");
+      });
+      qsa("ytmusic-thumbnail-renderer", root).forEach((tr) => injectQueueThumbnailStyle(tr));
+    });
+  }
+
   const QUEUE_ITEM_SHADOW_CSS = `
     :host {
       --ytmusic-menu-renderer-button-opacity: 1 !important;
       --yt-endpoint-action-button-opacity: 1 !important;
+      --ytmusic-thumbnail-size: var(--deck-queue-thumb, 64px) !important;
+      display: flex !important;
+      align-items: center !important;
+      box-sizing: border-box !important;
       position: relative !important;
       touch-action: auto !important;
+      min-height: calc(var(--deck-queue-thumb, 64px) + (var(--deck-queue-item-pad-y, 8px) * 2)) !important;
+      padding: var(--deck-queue-item-pad-y, 8px) var(--deck-queue-item-pad-x, 10px) !important;
+      margin: 0 !important;
+      border-top: none !important;
+      border-left: none !important;
+      border-right: none !important;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+      border-radius: 0 !important;
+      overflow: hidden !important;
+    }
+    :host(:last-of-type) {
+      border-bottom: none !important;
+    }
+    #content,
+    .content,
+    #details,
+    .details,
+    .text-wrapper {
+      align-items: center !important;
+      gap: 10px !important;
+      border: none !important;
+      border-bottom: none !important;
+      box-shadow: none !important;
+    }
+    ytmusic-thumbnail-renderer,
+    #thumbnail {
+      width: var(--deck-queue-thumb, 64px) !important;
+      height: var(--deck-queue-thumb, 64px) !important;
+      min-width: var(--deck-queue-thumb, 64px) !important;
+      min-height: var(--deck-queue-thumb, 64px) !important;
+      flex: 0 0 var(--deck-queue-thumb, 64px) !important;
+    }
+    .song-title,
+    .song-title a,
+    yt-formatted-string.song-title {
+      font-size: var(--deck-fs-queue-title, 20px) !important;
+      font-weight: 600 !important;
+      line-height: 1.3 !important;
+    }
+    .byline,
+    yt-formatted-string.byline {
+      font-size: var(--deck-fs-queue-meta, 17px) !important;
+      line-height: 1.3 !important;
     }
     :host(:not(:hover)) #menu,
     #menu,
@@ -1193,10 +1905,10 @@ window.YTMDeck = (function () {
       opacity: 0 !important;
       visibility: visible !important;
       display: flex !important;
-      width: 40px !important;
-      min-width: 40px !important;
-      max-width: 40px !important;
-      height: 40px !important;
+      width: var(--deck-queue-menu-size, 46px) !important;
+      min-width: var(--deck-queue-menu-size, 46px) !important;
+      max-width: var(--deck-queue-menu-size, 46px) !important;
+      height: var(--deck-queue-menu-size, 46px) !important;
       overflow: visible !important;
       pointer-events: none !important;
       transition: none !important;
@@ -1218,11 +1930,11 @@ window.YTMDeck = (function () {
       display: inline-flex !important;
       align-items: center !important;
       justify-content: flex-end !important;
-      gap: 8px !important;
+      gap: 10px !important;
       flex: 0 0 auto !important;
       margin-left: auto !important;
-      min-width: 92px !important;
-      padding-left: 6px !important;
+      min-width: var(--deck-queue-actions-min, 108px) !important;
+      padding-left: 8px !important;
       position: relative !important;
       pointer-events: none !important;
     }
@@ -1231,10 +1943,11 @@ window.YTMDeck = (function () {
     yt-formatted-string.duration {
       order: 1 !important;
       flex: 0 0 auto !important;
-      min-width: 38px !important;
+      min-width: var(--deck-queue-duration-min, 44px) !important;
       margin: 0 !important;
       padding: 0 2px 0 0 !important;
       text-align: right !important;
+      font-size: var(--deck-fs-queue-meta, 17px) !important;
       font-variant-numeric: tabular-nums !important;
       pointer-events: none !important;
     }
@@ -1242,18 +1955,18 @@ window.YTMDeck = (function () {
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
-      flex: 0 0 40px !important;
-      width: 40px !important;
-      min-width: 40px !important;
-      height: 40px !important;
-      min-height: 40px !important;
+      flex: 0 0 var(--deck-queue-menu-size, 46px) !important;
+      width: var(--deck-queue-menu-size, 46px) !important;
+      min-width: var(--deck-queue-menu-size, 46px) !important;
+      height: var(--deck-queue-menu-size, 46px) !important;
+      min-height: var(--deck-queue-menu-size, 46px) !important;
       margin: 0 !important;
       padding: 0 !important;
       border: 0 !important;
       border-radius: 50% !important;
       background: transparent !important;
       color: rgba(220, 200, 255, 0.62) !important;
-      font-size: 22px !important;
+      font-size: var(--deck-queue-menu-icon, 26px) !important;
       line-height: 1 !important;
       opacity: 1 !important;
       visibility: visible !important;
@@ -1268,7 +1981,7 @@ window.YTMDeck = (function () {
 
   function injectQueueItemHostStyle(host) {
     if (!host?.shadowRoot) return;
-    const styleVersion = "3";
+    const styleVersion = "7";
     const old = host.shadowRoot.querySelector("[data-deck-queue-item-style]");
     if (old?.getAttribute("data-deck-queue-item-style") === styleVersion) return;
     if (old) old.remove();
@@ -1735,7 +2448,7 @@ window.YTMDeck = (function () {
     if (closeOpenPopups()) return;
 
     if (isPlayerPageOpen()) {
-      click("ytmusic-player-bar .toggle-player-page-button");
+      closePlayerPage();
       return;
     }
 
@@ -1786,17 +2499,46 @@ window.YTMDeck = (function () {
     }
   }
 
+  function isSidePanelTabTarget(target) {
+    return !!target?.closest?.(
+      "#side-panel tp-yt-paper-tab, #side-panel paper-tab, #side-panel tp-yt-paper-tabs, " +
+        "#side-panel .tab-header-container, #side-panel #tabs, #side-panel .tab-header"
+    );
+  }
+
   function isScrollControl(target) {
+    if (isSidePanelTabTarget(target)) return true;
     return !!target.closest(
       "button, input, textarea, select, ytmusic-player-bar, .deck-queue-menu-proxy, " +
         "tp-yt-paper-slider, ytmusic-play-button-renderer, ytmusic-menu-renderer, " +
-        "ytmusic-item-menu-renderer, tp-yt-paper-tab"
+        "ytmusic-item-menu-renderer, tp-yt-paper-tab, #avatar-btn, #button-bar, #right-content, " +
+        ".deck-guide-account-bar, ytmusic-nav-bar #button-bar, ytmusic-nav-bar #right-content, " +
+        "ytmusic-cast-button, ytmusic-settings-button"
     );
   }
 
   function isCarouselScrollTarget(target) {
-    const carousel = target.closest("ytmusic-carousel #items, ytmusic-carousel .items-wrapper");
-    return carousel && carousel.scrollWidth > carousel.clientWidth + 4 ? carousel : null;
+    const carousel = target.closest?.(
+      "ytmusic-carousel #items, ytmusic-carousel .items-wrapper, ytmusic-carousel-shelf-renderer #items"
+    );
+    if (carousel && carousel.scrollWidth > carousel.clientWidth + 4) return carousel;
+
+    const chipCloud = target.closest?.("ytmusic-chip-cloud-renderer, .chip-cloud-renderer");
+    if (!chipCloud) return null;
+    const chipScroller =
+      qs("#scroll-container", chipCloud) ||
+      qs("#chips-wrapper", chipCloud) ||
+      qs(".chip-cloud-content", chipCloud) ||
+      chipCloud;
+    return chipScroller.scrollWidth > chipScroller.clientWidth + 4 ? chipScroller : null;
+  }
+
+  function preferHorizontalAxis(dx, dy) {
+    return Math.abs(dx) > Math.abs(dy) * SCROLL_AXIS_RATIO;
+  }
+
+  function preferVerticalAxis(dx, dy) {
+    return Math.abs(dy) > Math.abs(dx) * SCROLL_AXIS_RATIO;
   }
 
   function bindPreventLinkDrag() {
@@ -1809,7 +2551,8 @@ window.YTMDeck = (function () {
         if (!document.documentElement.hasAttribute("data-ytm-deck")) return;
         if (
           event.target.closest(
-            "a, .yt-simple-endpoint, tp-yt-paper-item, ytmusic-guide-entry-renderer, ytmusic-multi-carousel-item-renderer, ytmusic-two-row-item-renderer"
+            "a, .yt-simple-endpoint, tp-yt-paper-item, ytmusic-guide-entry-renderer, ytmusic-multi-carousel-item-renderer, ytmusic-two-row-item-renderer, " +
+              "#side-panel ytmusic-playlist-panel-video-renderer, #side-panel ytmusic-queue-item, #side-panel ytmusic-player-queue-item"
           )
         ) {
           event.preventDefault();
@@ -1836,6 +2579,7 @@ window.YTMDeck = (function () {
         gesture.edgeTimer = null;
       }
       if (gesture.item) delete gesture.item.dataset.deckReorderOk;
+      gesture.reorderCandidate = null;
       if (gesture.mode === MODE.REORDER) setQueueReordering(false);
       try {
         gesture.scroller?.releasePointerCapture?.(gesture.id);
@@ -1885,7 +2629,7 @@ window.YTMDeck = (function () {
       ]);
       if (queueItem && qs("#side-panel")?.contains(queueItem)) {
         const scroller = getQueueScroller(queueItem);
-        if (scroller) return { scroller, item: queueItem };
+        if (scroller) return { scroller, item: null, reorderCandidate: queueItem };
       }
 
       const queueTab = findDeckHost(target, [
@@ -1907,8 +2651,11 @@ window.YTMDeck = (function () {
           "#sections",
           "tp-yt-app-drawer#guide",
         ]);
-        if (guideHit) {
-          const scroller = pickBestScroller([
+      if (guideHit) {
+        if (target.closest?.(".deck-guide-account-bar, #button-bar, #right-content, #avatar-btn, ytmusic-cast-button, ytmusic-settings-button")) {
+          return null;
+        }
+        const scroller = pickBestScroller([
             qs("tp-yt-app-drawer#guide #guide-content"),
             qs("#guide-content"),
             qs("tp-yt-app-drawer#guide"),
@@ -1940,6 +2687,7 @@ window.YTMDeck = (function () {
       "click",
       (event) => {
         if (performance.now() < suppressClickUntil) {
+          if (isSidePanelTabTarget(event.target)) return;
           event.preventDefault();
           event.stopPropagation();
         }
@@ -1953,7 +2701,11 @@ window.YTMDeck = (function () {
         if (event.button !== 0) return;
         if (isScrollControl(event.target)) return;
 
+        clearGesture();
+
         const carousel = isCarouselScrollTarget(event.target);
+        const vertical = resolveVerticalScroller(event.target);
+
         if (carousel) {
           gesture = {
             id: event.pointerId,
@@ -1961,16 +2713,23 @@ window.YTMDeck = (function () {
             y: event.clientY,
             t: performance.now(),
             mode: MODE.PENDING,
-            kind: "horizontal",
+            kind: "ambivalent",
             scroller: carousel,
             left: carousel.scrollLeft,
+            top: vertical?.scroller?.scrollTop ?? 0,
+            verticalScroller: vertical?.scroller || null,
             item: null,
+            edgeTimer: null,
+            edgeDir: 0,
           };
           return;
         }
 
-        const vertical = resolveVerticalScroller(event.target);
         if (!vertical) return;
+
+        if (vertical.reorderCandidate) {
+          event.preventDefault();
+        }
 
         gesture = {
           id: event.pointerId,
@@ -1983,6 +2742,7 @@ window.YTMDeck = (function () {
           top: vertical.scroller.scrollTop,
           lockTop: vertical.scroller.scrollTop,
           item: vertical.item,
+          reorderCandidate: vertical.reorderCandidate || null,
           thumbItem: getQueueItemFromThumbnail(event.target, event.clientX, event.clientY),
           edgeTimer: null,
           edgeDir: 0,
@@ -2002,13 +2762,24 @@ window.YTMDeck = (function () {
         const elapsed = performance.now() - gesture.t;
 
         if (gesture.mode === MODE.PENDING) {
-          if (gesture.kind === "horizontal") {
+          if (gesture.kind === "ambivalent") {
             if (dist < SCROLL_DRAG_THRESHOLD) return;
-            if (Math.abs(dx) <= Math.abs(dy)) {
+            if (preferHorizontalAxis(dx, dy)) {
+              gesture.mode = MODE.H_SCROLL;
+              gesture.kind = "horizontal";
+              gesture.left = gesture.scroller.scrollLeft;
+            } else if (preferVerticalAxis(dx, dy) && gesture.verticalScroller) {
+              gesture.mode = MODE.V_SCROLL;
+              gesture.kind = "vertical";
+              gesture.scroller = gesture.verticalScroller;
+              gesture.top = gesture.verticalScroller.scrollTop;
+              gesture.lockTop = gesture.verticalScroller.scrollTop;
+            } else if (preferVerticalAxis(dx, dy)) {
               clearGesture();
               return;
+            } else {
+              return;
             }
-            gesture.mode = MODE.H_SCROLL;
             document.documentElement.classList.add("ytm-deck-dragging");
             clearSelection();
             try {
@@ -2016,9 +2787,13 @@ window.YTMDeck = (function () {
             } catch (_) {
               /* noop */
             }
-          } else if (gesture.item) {
-            if (dist > QUEUE_MOVE_SLOP) {
+          } else if (gesture.reorderCandidate) {
+            const verticalIntent =
+              Math.abs(dy) >= QUEUE_VERTICAL_CANCEL ||
+              (dist >= SCROLL_DRAG_THRESHOLD && preferVerticalAxis(dx, dy));
+            if (verticalIntent || dist > QUEUE_MOVE_SLOP) {
               gesture.mode = MODE.V_SCROLL;
+              gesture.reorderCandidate = null;
               document.documentElement.classList.add("ytm-deck-dragging");
               clearSelection();
               try {
@@ -2026,8 +2801,10 @@ window.YTMDeck = (function () {
               } catch (_) {
                 /* noop */
               }
-            } else if (elapsed >= QUEUE_LONG_PRESS_MS) {
+            } else if (elapsed >= QUEUE_LONG_PRESS_MS && dist <= QUEUE_REORDER_MAX_MOVE) {
               gesture.mode = MODE.REORDER;
+              gesture.item = gesture.reorderCandidate;
+              gesture.reorderCandidate = null;
               gesture.item.dataset.deckReorderOk = "1";
               gesture.lockTop = gesture.scroller.scrollTop;
               setQueueReordering(true);
@@ -2037,8 +2814,10 @@ window.YTMDeck = (function () {
             }
           } else {
             if (dist < SCROLL_DRAG_THRESHOLD) return;
-            if (Math.abs(dy) <= Math.abs(dx)) {
-              clearGesture();
+            if (!preferVerticalAxis(dx, dy)) {
+              if (preferHorizontalAxis(dx, dy)) {
+                clearGesture();
+              }
               return;
             }
             gesture.mode = MODE.V_SCROLL;
@@ -2108,6 +2887,11 @@ window.YTMDeck = (function () {
 
     document.addEventListener("pointerup", finishGesture, true);
     document.addEventListener("pointercancel", finishGesture, true);
+
+    registerTouchReset(() => {
+      clearGesture();
+      suppressClickUntil = 0;
+    });
   }
 
   function bindQueueThumbnailTap() {
@@ -2168,11 +2952,87 @@ window.YTMDeck = (function () {
       },
       true
     );
+
+    registerTouchReset(() => {
+      thumbTap = null;
+    });
+  }
+
+  function bindSidePanelTabTouch() {
+    if (window.__YTM_DECK_SIDE_TAB_TOUCH__) return;
+    window.__YTM_DECK_SIDE_TAB_TOUCH__ = true;
+
+    const tabFrom = (target) =>
+      target?.closest?.("#side-panel tp-yt-paper-tab, #side-panel paper-tab");
+
+    let tabTap = null;
+
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (event.button !== 0) return;
+        const tab = tabFrom(event.target);
+        if (!tab) return;
+        tabTap = {
+          tab,
+          id: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          t: performance.now(),
+        };
+      },
+      true
+    );
+
+    document.addEventListener(
+      "pointermove",
+      (event) => {
+        if (!tabTap || event.pointerId !== tabTap.id) return;
+        if (Math.hypot(event.clientX - tabTap.x, event.clientY - tabTap.y) > QUEUE_MOVE_SLOP) {
+          tabTap = null;
+        }
+      },
+      true
+    );
+
+    document.addEventListener(
+      "pointerup",
+      (event) => {
+        if (!tabTap || event.pointerId !== tabTap.id) return;
+        const elapsed = performance.now() - tabTap.t;
+        const dist = Math.hypot(event.clientX - tabTap.x, event.clientY - tabTap.y);
+        const tab = tabTap.tab;
+        tabTap = null;
+        if (elapsed > QUEUE_TAP_MS || dist > QUEUE_MOVE_SLOP) return;
+        event.preventDefault();
+        event.stopPropagation();
+        sideTabUserPicked = true;
+        tab.click();
+        setTimeout(paintDeckAccentTabs, 0);
+        setTimeout(paintDeckAccentTabs, 120);
+      },
+      true
+    );
+
+    document.addEventListener(
+      "pointercancel",
+      (event) => {
+        if (tabTap && event.pointerId === tabTap.id) tabTap = null;
+      },
+      true
+    );
+
+    registerTouchReset(() => {
+      tabTap = null;
+    });
   }
 
   function bindPointerScrollDrag() {
+    bindAppLifecycleTouchReset();
+    bindTouchCursorHide();
     bindTouchGestures();
     bindQueueThumbnailTap();
+    bindSidePanelTabTouch();
   }
 
   function bindDeckInput() {
@@ -2305,6 +3165,7 @@ window.YTMDeck = (function () {
       item.style.setProperty("--yt-endpoint-action-button-opacity", "1");
 
       injectQueueItemHostStyle(item);
+      syncQueueItemThumbnail(item);
       ensureQueueActionsRow(item);
 
       qsa("ytmusic-menu-renderer, ytmusic-item-menu-renderer", item).forEach((menu) => {
@@ -2333,9 +3194,9 @@ window.YTMDeck = (function () {
   }
 
   function updateDeckUi() {
-    syncMediaActiveUi();
     const bar = qs("ytmusic-player-bar");
-    if (bar) syncPlayerBarTitleMarquee(bar);
+    if (bar) syncDeckMediaInfo(bar);
+    syncMediaActiveUi();
 
     const state = collectState();
     const art = qs(".deck-now-playing-art");
@@ -2470,26 +3331,43 @@ window.YTMDeck = (function () {
     updateDeckUi();
   }
 
-  function bindPlayerToggle() {
-    const bar = qs("ytmusic-player-bar");
-    if (!bar || bar.dataset.deckToggleBound) return;
-    bar.dataset.deckToggleBound = "1";
+  function clickPlayerPageToggle(bar) {
+    return togglePlayerPageView();
+  }
 
-    bar.addEventListener("click", (event) => {
-      if (!event.target.closest(".toggle-player-page-button")) return;
-      setTimeout(syncPlayingView, 0);
-      setTimeout(syncPlayingView, 300);
-      setTimeout(syncPlayingView, 800);
-      setTimeout(() => {
-        syncPlayingView();
-      }, 1500);
-    });
+  function bindPlayerToggle() {
+    if (window.__YTM_DECK_TOGGLE_V3__) return;
+    window.__YTM_DECK_TOGGLE_V3__ = true;
+
+    document.addEventListener(
+      "pointerup",
+      (event) => {
+        if (!event.target.closest("ytmusic-player-bar .toggle-player-page-button")) return;
+        if (event.button !== 0 && event.pointerType !== "touch") return;
+
+        const wasOpen = isPlayerPageOpen();
+        setTimeout(() => {
+          const nowOpen = isPlayerPageOpen();
+          if (!wasOpen && nowOpen) {
+            syncPlayingView();
+            return;
+          }
+          if (wasOpen && !nowOpen) {
+            syncPlayingView();
+            return;
+          }
+          if (!wasOpen && !nowOpen) openPlayerPage();
+          else if (wasOpen && nowOpen) closePlayerPage();
+        }, 80);
+      },
+      false
+    );
   }
 
   const PLAYER_OPEN_TARGETS =
     ".toggle-player-page-button, .thumbnail-image-wrapper, .song-image, ytmusic-thumbnail-renderer";
   const PLAYER_BAR_INTERACTIVE =
-    "yt-icon-button, tp-yt-paper-icon-button, tp-yt-paper-slider, #volume-slider, #progress-bar, button, a.yt-simple-endpoint, .left-controls-buttons, .right-controls-buttons, .middle-controls-buttons, .play-pause-button, .next-button, .previous-button";
+    "yt-icon-button, tp-yt-paper-icon-button, tp-yt-paper-slider, #volume-slider, #progress-bar, button, a.yt-simple-endpoint, .left-controls-buttons, .right-controls-buttons, .middle-controls-buttons, .play-pause-button, .next-button, .previous-button, .toggle-player-page-button";
 
   function bindPlayerBarOpenGuard() {
     const bar = qs("ytmusic-player-bar");
@@ -2512,15 +3390,9 @@ window.YTMDeck = (function () {
       (event) => {
         if (isPlayerPageOpen()) return;
         if (!event.target.closest(".thumbnail-image-wrapper, .song-image, ytmusic-thumbnail-renderer")) return;
-        const toggle = qs(
-          ".toggle-player-page-button button, .toggle-player-page-button yt-icon-button",
-          bar
-        );
-        if (!toggle) return;
         setTimeout(() => {
-          if (!isPlayerPageOpen()) click(toggle);
-          syncPlayingView();
-          setTimeout(syncPlayingView, 300);
+          if (!isPlayerPageOpen()) openPlayerPage();
+          else syncPlayingView();
         }, 0);
       },
       false
@@ -2862,6 +3734,8 @@ window.YTMDeck = (function () {
       syncTimer = setTimeout(() => {
         syncTimer = null;
         syncPlayerBarTitleMarquee(bar);
+        syncDeckMediaInfo(bar);
+        scheduleDeckMediaMarqueeMeasure(bar);
         const heroTitle = qs(".deck-now-playing-meta .deck-title");
         const heroArtist = qs(".deck-now-playing-meta .deck-artist");
         const title = readSongTitle();
@@ -2920,112 +3794,477 @@ window.YTMDeck = (function () {
     return readLivePlayerBarTitle(bar);
   }
 
+  function measureDeckLineMarquee(wrap) {
+    if (!wrap?.isConnected) return;
+    const primary = wrap.querySelector(".deck-title-marquee-text");
+    const inner = wrap.querySelector(".deck-title-marquee-inner");
+    if (!primary || !inner) return;
+
+    const overflows = primary.scrollWidth > wrap.clientWidth + 2;
+    wrap.classList.toggle("deck-title-marquee-active", overflows);
+
+    if (overflows) {
+      const gapPx = 32;
+      const distance = primary.scrollWidth + gapPx;
+      const duration = Math.max(8, Math.min(22, distance / 22));
+      inner.style.setProperty("--deck-marquee-end", `-${distance}px`);
+      inner.style.setProperty("--deck-marquee-duration", `${duration}s`);
+    } else {
+      inner.style.removeProperty("--deck-marquee-end");
+      inner.style.removeProperty("--deck-marquee-duration");
+    }
+  }
+
+  function remeasureDeckMediaMarquees(bar) {
+    if (!bar) bar = qs("ytmusic-player-bar");
+    if (!bar) return;
+    qsa(".deck-media-title .deck-title-marquee, .deck-media-artist .deck-title-marquee", bar).forEach(
+      measureDeckLineMarquee
+    );
+  }
+
+  function scheduleDeckMediaMarqueeMeasure(bar) {
+    if (!bar) bar = qs("ytmusic-player-bar");
+    if (!bar) return;
+    remeasureDeckMediaMarquees(bar);
+    requestAnimationFrame(() => {
+      remeasureDeckMediaMarquees(bar);
+      requestAnimationFrame(() => remeasureDeckMediaMarquees(bar));
+    });
+    setTimeout(() => remeasureDeckMediaMarquees(bar), 120);
+  }
+
+  function applyDeckMediaLineMarquee(hostEl, text, opts) {
+    if (!hostEl) return;
+
+    const dataKey = opts?.dataKey || "deckLastText";
+    let wrap = qs(".deck-title-marquee", hostEl);
+    const currentText = (text || "").trim();
+
+    if (!currentText) {
+      wrap?.remove();
+      hostEl.classList.remove("deck-has-marquee");
+      hostEl.textContent = "";
+      delete hostEl.dataset[dataKey];
+      return;
+    }
+
+    hostEl.dataset[dataKey] = currentText;
+
+    if (wrap && wrap.dataset.deckOriginalText !== currentText) {
+      wrap.remove();
+      wrap = null;
+    }
+
+    hostEl.classList.add("deck-has-marquee");
+
+    if (!wrap) {
+      hostEl.textContent = "";
+      wrap = document.createElement("div");
+      wrap.className = "deck-title-marquee";
+      wrap.dataset.deckOriginalText = currentText;
+
+      const inner = document.createElement("div");
+      inner.className = "deck-title-marquee-inner";
+
+      const primary = document.createElement("span");
+      primary.className = "deck-title-marquee-text";
+      primary.textContent = currentText;
+
+      const gap = document.createElement("span");
+      gap.className = "deck-title-marquee-gap";
+      gap.setAttribute("aria-hidden", "true");
+      gap.textContent = "\u00a0";
+
+      const copy = document.createElement("span");
+      copy.className = "deck-title-marquee-text deck-title-marquee-copy";
+      copy.setAttribute("aria-hidden", "true");
+      copy.textContent = currentText;
+
+      inner.append(primary, gap, copy);
+      wrap.appendChild(inner);
+      hostEl.appendChild(wrap);
+    } else {
+      wrap.dataset.deckOriginalText = currentText;
+      qsa(".deck-title-marquee-text", wrap).forEach((node) => {
+        node.textContent = currentText;
+      });
+    }
+
+    measureDeckLineMarquee(wrap);
+    requestAnimationFrame(() => measureDeckLineMarquee(wrap));
+  }
+
+  function applyDeckMediaTitleMarquee(titleEl, text) {
+    applyDeckMediaLineMarquee(titleEl, text, { dataKey: "deckLastTitle" });
+  }
+
+  function applyDeckMediaArtistMarquee(artistEl, text) {
+    applyDeckMediaLineMarquee(artistEl, text, { dataKey: "deckLastArtist" });
+  }
+
   function syncPlayerBarTitleMarquee(bar) {
     if (!bar) bar = qs("ytmusic-player-bar");
     if (!bar) return;
+    syncDeckMediaInfo(bar);
+  }
 
-    const liveTitle = readLivePlayerBarTitle(bar);
-    const titleEls = getPlayerBarTitleElements(bar);
-    const leftTitle = qs(".left-controls .title, .left-controls .song-info .title", bar);
-    const leftText = liveTitle || readPlayerBarTitleText(leftTitle);
+  function findAnyPlayerBarTitle(root) {
+    if (!root) return null;
+    return (
+      qs(".content-info-wrapper .title", root) ||
+      qs(".song-info .title", root) ||
+      qs(".deck-bar-title-mirror", root) ||
+      qs("yt-formatted-string.title", root) ||
+      qs(".title", root)
+    );
+  }
 
-    qsa(
-      ".middle-controls .title, .middle-controls .song-info, .middle-controls .content-info-wrapper",
-      bar
-    ).forEach((el) => {
-      el.classList.toggle("deck-hide-duplicate-title", !!leftText);
-    });
+  function findLeftPlayerBarTitle(left) {
+    return findAnyPlayerBarTitle(left);
+  }
 
-    const activeTitles = titleEls.filter((titleEl) => {
-      if (!leftText) return true;
-      return !titleEl.closest(".middle-controls");
-    });
+  function readDeckBarDisplayTitle(bar) {
+    if (!bar) bar = qs("ytmusic-player-bar");
 
-    activeTitles.forEach((titleEl) => {
-      const currentText = liveTitle;
-      let wrap = titleEl.querySelector(".deck-title-marquee");
+    const fromNative = readLivePlayerBarTitle(bar, { skipDeckMedia: true });
+    if (fromNative) return fromNative;
 
-      if (!currentText) {
-        wrap?.remove();
-        delete titleEl.dataset.deckMarqueeText;
-        titleEl.classList.remove("deck-has-marquee");
-        return;
-      }
+    const fromMarquee = readMarqueeTitle(bar);
+    if (fromMarquee) return fromMarquee;
 
-      if (wrap && wrap.dataset.deckOriginalText !== currentText) {
-        wrap.remove();
-        wrap = null;
-      }
+    const titleSelectors = [
+      ".middle-controls .title",
+      ".middle-controls .song-info .title",
+      ".left-controls .content-info-wrapper .title",
+      ".left-controls .song-info .title",
+    ];
+    for (const sel of titleSelectors) {
+      const el = bar ? qs(sel, bar) : null;
+      if (!el || el.closest(".deck-media-title, .deck-title-marquee")) continue;
+      const marqueeText = readMarqueeTitle(el);
+      if (marqueeText) return marqueeText;
+      const text = (el.textContent || "").trim();
+      if (text) return text;
+    }
 
-      delete titleEl.dataset.deckMarqueeText;
-      titleEl.classList.add("deck-has-marquee");
+    return readSongTitle() || "";
+  }
 
-      if (!wrap) {
-        titleEl.textContent = "";
-        wrap = document.createElement("div");
-        wrap.className = "deck-title-marquee";
-        wrap.dataset.deckOriginalText = currentText;
+  function readDeckBarDisplayArtist(bar) {
+    if (!bar) bar = qs("ytmusic-player-bar");
+    if (!bar) return "";
 
-        const inner = document.createElement("div");
-        inner.className = "deck-title-marquee-inner";
+    const bylineSelectors = [
+      ".middle-controls .byline",
+      ".middle-controls .song-info .byline",
+      ".left-controls .content-info-wrapper .byline",
+      ".left-controls .song-info .byline",
+    ];
+    for (const sel of bylineSelectors) {
+      const text = extractArtistFromByline(qs(sel, bar));
+      if (text) return text;
+    }
 
-        const primary = document.createElement("span");
-        primary.className = "deck-title-marquee-text";
-        primary.textContent = currentText;
+    return readSongArtist() || readQueueArtist() || "";
+  }
 
-        const gap = document.createElement("span");
-        gap.className = "deck-title-marquee-gap";
-        gap.setAttribute("aria-hidden", "true");
-        gap.textContent = "\u00a0";
+  function relocatePlayerBarLikes(bar) {
+    const block = qs(".deck-media-info", bar);
+    const likes =
+      qs(".middle-controls-buttons", bar) ||
+      qs(".middle-controls .middle-controls-buttons", bar);
+    if (!block || !likes) return;
 
-        const copy = document.createElement("span");
-        copy.className = "deck-title-marquee-text deck-title-marquee-copy";
-        copy.setAttribute("aria-hidden", "true");
-        copy.textContent = currentText;
+    if (!block.contains(likes)) {
+      likes.classList.add("deck-media-likes");
+      block.appendChild(likes);
+    }
+  }
 
-        inner.append(primary, gap, copy);
-        wrap.appendChild(inner);
-        titleEl.appendChild(wrap);
+  function normalizeDeckMediaInfoOrder(block) {
+    if (!block) return;
+    const thumbWrap = qs(".deck-media-thumb", block);
+    const textWrap = qs(".deck-media-text", block);
+    if (!thumbWrap) return;
+
+    if (block.firstElementChild !== thumbWrap) {
+      block.insertBefore(thumbWrap, block.firstElementChild);
+    }
+    if (textWrap && thumbWrap.nextElementSibling !== textWrap) {
+      block.insertBefore(textWrap, thumbWrap.nextElementSibling);
+    }
+  }
+
+  function ensureDeckMediaInfo(bar) {
+    const left = qs(".left-controls", bar);
+    if (!left) return null;
+
+    let block = qs(".deck-media-info", left);
+    if (!block) {
+      block = document.createElement("div");
+      block.className = "deck-media-info";
+
+      const thumbWrap = document.createElement("div");
+      thumbWrap.className = "deck-media-thumb";
+
+      const textWrap = document.createElement("div");
+      textWrap.className = "deck-media-text";
+
+      const titleEl = document.createElement("div");
+      titleEl.className = "deck-media-title";
+
+      const artistEl = document.createElement("div");
+      artistEl.className = "deck-media-artist";
+
+      textWrap.append(titleEl, artistEl);
+      block.append(thumbWrap, textWrap);
+
+      const buttons = qs(".left-controls-buttons", left);
+      if (buttons?.parentElement === left) {
+        buttons.insertAdjacentElement("afterend", block);
       } else {
-        wrap.dataset.deckOriginalText = currentText;
-        qsa(".deck-title-marquee-text", wrap).forEach((node) => {
-          node.textContent = currentText;
-        });
+        left.appendChild(block);
       }
+    }
 
-      const measureMarquee = () => {
-        if (!wrap?.isConnected) return;
-        const primary = wrap.querySelector(".deck-title-marquee-text");
-        const inner = wrap.querySelector(".deck-title-marquee-inner");
-        if (!primary || !inner) return;
-
-        const overflows = primary.scrollWidth > wrap.clientWidth + 2;
-        wrap.classList.toggle("deck-title-marquee-active", overflows);
-
-        if (overflows) {
-          const gapPx = 32;
-          const distance = primary.scrollWidth + gapPx;
-          const duration = Math.max(8, Math.min(22, distance / 22));
-          inner.style.setProperty("--deck-marquee-end", `-${distance}px`);
-          inner.style.setProperty("--deck-marquee-duration", `${duration}s`);
-        } else {
-          inner.style.removeProperty("--deck-marquee-end");
-          inner.style.removeProperty("--deck-marquee-duration");
-        }
-      };
-
-      measureMarquee();
-      requestAnimationFrame(measureMarquee);
+    const thumbWrap = qs(".deck-media-thumb", block);
+    const thumbSelectors =
+      ".thumbnail-image-wrapper, .song-image, ytmusic-thumbnail-renderer, yt-img-shadow.image, yt-img-shadow#thumbnail";
+    qsa(thumbSelectors, bar).forEach((thumb) => {
+      if (!thumbWrap || thumbWrap.contains(thumb) || !shouldRelocatePlayerBarThumb(thumb, bar)) return;
+      thumbWrap.appendChild(thumb);
     });
+    ensureDeckMediaThumbContent(bar, thumbWrap);
+
+    let textWrap = qs(".deck-media-text", block);
+    if (!textWrap) {
+      textWrap = document.createElement("div");
+      textWrap.className = "deck-media-text";
+      if (thumbWrap) thumbWrap.insertAdjacentElement("afterend", textWrap);
+      else block.appendChild(textWrap);
+    }
+
+    let titleEl = qs(".deck-media-title", block);
+    if (!titleEl) {
+      titleEl = document.createElement("div");
+      titleEl.className = "deck-media-title";
+      textWrap.appendChild(titleEl);
+    } else if (!textWrap.contains(titleEl)) {
+      textWrap.appendChild(titleEl);
+    }
+
+    let artistEl = qs(".deck-media-artist", block);
+    if (!artistEl) {
+      artistEl = document.createElement("div");
+      artistEl.className = "deck-media-artist";
+      textWrap.appendChild(artistEl);
+    } else if (!textWrap.contains(artistEl)) {
+      textWrap.appendChild(artistEl);
+    }
+
+    normalizeDeckMediaInfoOrder(block);
+    relocatePlayerBarLikes(bar);
+
+    return {
+      block,
+      titleEl,
+      artistEl,
+    };
+  }
+
+  function syncDeckMediaInfo(bar) {
+    const ui = ensureDeckMediaInfo(bar);
+    if (!ui?.titleEl || !ui?.artistEl) return;
+
+    let title = readDeckBarDisplayTitle(bar);
+    if (!title && ui.titleEl.dataset.deckLastTitle) {
+      title = ui.titleEl.dataset.deckLastTitle;
+    }
+
+    let artist = readDeckBarDisplayArtist(bar) || readSongArtist() || "";
+    if (!artist && ui.artistEl.dataset.deckLastArtist) {
+      artist = ui.artistEl.dataset.deckLastArtist;
+    }
+
+    applyDeckMediaTitleMarquee(ui.titleEl, title);
+    applyDeckMediaArtistMarquee(ui.artistEl, artist);
+    scheduleDeckMediaMarqueeMeasure(bar);
+    syncPlayerBarThumbnail();
+  }
+
+  function reorganizePlayerBarLeft(bar) {
+    const left = qs(".left-controls", bar);
+    if (!left) return null;
+
+    qsa(".deck-bar-artist", left).forEach((el) => {
+      if (!el.closest(".deck-bar-info, .content-info-wrapper, .song-info, .deck-bar-track")) {
+        el.remove();
+      }
+    });
+
+    let track = qs(".deck-bar-track", left);
+    if (!track) {
+      track = document.createElement("div");
+      track.className = "deck-bar-track";
+      const buttons = qs(".left-controls-buttons", left);
+      if (buttons?.parentElement === left) {
+        left.insertBefore(track, buttons.nextElementSibling);
+      } else {
+        left.prepend(track);
+      }
+    }
+
+    const thumb = qs(".thumbnail-image-wrapper, .song-image, ytmusic-thumbnail-renderer", left);
+    if (thumb && !track.contains(thumb)) {
+      track.appendChild(thumb);
+    }
+
+    let stack =
+      qs(".deck-bar-info", track) ||
+      qs(".content-info-wrapper", track) ||
+      qs(".song-info", track);
+
+    const orphanStack = qs(".content-info-wrapper, .song-info, .deck-bar-info", left);
+    if (orphanStack && !track.contains(orphanStack)) {
+      if (!stack) stack = orphanStack;
+      track.appendChild(orphanStack);
+    }
+
+    if (!stack) {
+      stack = document.createElement("div");
+      stack.className = "deck-bar-info";
+      track.appendChild(stack);
+    }
+
+    qsa(".title, yt-formatted-string.title, .deck-bar-title-mirror", left).forEach((titleEl) => {
+      if (titleEl.closest(".left-controls-buttons, .middle-controls, .deck-title-marquee")) return;
+      if (stack.contains(titleEl)) return;
+      if (!left.contains(titleEl)) return;
+      stack.appendChild(titleEl);
+    });
+
+    const bylineWrap = qs(".byline-wrapper", left);
+    if (bylineWrap && !stack.contains(bylineWrap) && left.contains(bylineWrap)) {
+      stack.appendChild(bylineWrap);
+    }
+
+    const buttons = qs(".left-controls-buttons", left);
+    if (buttons?.parentElement === left && track.parentElement === left) {
+      if (track.previousElementSibling !== buttons) {
+        left.insertBefore(track, buttons.nextElementSibling);
+      }
+    }
+
+    return { track, stack };
+  }
+
+  function ensurePlayerBarTextColumn(bar) {
+    const layout = reorganizePlayerBarLeft(bar);
+    return layout?.stack || null;
+  }
+
+  function ensureLeftTitleMirror(bar, liveTitle) {
+    reorganizePlayerBarLeft(bar);
+    const left = qs(".left-controls", bar);
+    if (!left) return null;
+
+    const stack = ensurePlayerBarTextColumn(bar);
+    const nativeLeft = findLeftPlayerBarTitle(left);
+    if (nativeLeft && !nativeLeft.classList.contains("deck-bar-title-mirror") && stack?.contains(nativeLeft)) {
+      qs(".deck-bar-title-mirror", stack)?.remove();
+      return nativeLeft;
+    }
+    if (!stack) return null;
+
+    let mirror = qs(".deck-bar-title-mirror", stack);
+    if (!mirror) {
+      mirror = document.createElement("div");
+      mirror.className = "title deck-bar-title-mirror";
+      const artist = qs(".deck-bar-artist", stack);
+      stack.insertBefore(mirror, artist || stack.firstChild);
+    }
+
+    if (!liveTitle) {
+      mirror.textContent = "";
+      mirror.classList.remove("deck-has-marquee");
+      qs(".deck-title-marquee", mirror)?.remove();
+      return mirror;
+    }
+
+    let wrap = qs(".deck-title-marquee", mirror);
+    if (!wrap) {
+      mirror.textContent = "";
+      wrap = document.createElement("div");
+      wrap.className = "deck-title-marquee";
+      const inner = document.createElement("div");
+      inner.className = "deck-title-marquee-inner";
+      const primary = document.createElement("span");
+      primary.className = "deck-title-marquee-text";
+      inner.appendChild(primary);
+      wrap.appendChild(inner);
+      mirror.appendChild(wrap);
+    }
+
+    wrap.dataset.deckOriginalText = liveTitle;
+    qsa(".deck-title-marquee-text", wrap).forEach((node) => {
+      node.textContent = liveTitle;
+    });
+    mirror.classList.add("deck-has-marquee");
+    return mirror;
+  }
+
+  function ensurePlayerBarArtist(bar) {
+    const layout = reorganizePlayerBarLeft(bar);
+    if (!layout) return null;
+
+    const { stack } = layout;
+    const left = qs(".left-controls", bar);
+
+    let artistEl = qs(".deck-bar-artist", stack);
+    if (!artistEl) {
+      artistEl = document.createElement("div");
+      artistEl.className = "deck-bar-artist";
+    }
+
+    const titleEl = (() => {
+      const native = findLeftPlayerBarTitle(left);
+      if (native && !native.classList.contains("deck-bar-title-mirror") && stack.contains(native)) {
+        return native;
+      }
+      return qs(".deck-bar-title-mirror", stack) || findAnyPlayerBarTitle(stack);
+    })();
+
+    if (titleEl && stack.contains(titleEl)) {
+      if (artistEl.parentElement !== stack) {
+        stack.appendChild(artistEl);
+      }
+      if (artistEl.previousElementSibling !== titleEl) {
+        titleEl.insertAdjacentElement("afterend", artistEl);
+      }
+    } else if (!stack.contains(artistEl)) {
+      stack.appendChild(artistEl);
+    }
+
+    return artistEl;
+  }
+
+  function syncPlayerBarArtist(bar) {
+    if (!bar) bar = qs("ytmusic-player-bar");
+    if (!bar) return;
+    syncDeckMediaInfo(bar);
   }
 
   function getPlayerBarTitleElements(bar) {
     const selectors = [
       ".left-controls .content-info-wrapper .title",
       ".left-controls .song-info .title",
+      ".left-controls > .title",
+      ".left-controls > yt-formatted-string.title",
       ".middle-controls .content-info-wrapper .title",
       ".middle-controls .song-info .title",
       ".middle-controls > .title",
+      ".middle-controls > yt-formatted-string.title",
     ];
     const seen = new Set();
     const result = [];
@@ -3043,9 +4282,21 @@ window.YTMDeck = (function () {
     syncPlayerBarTitleMarquee(bar);
   }
 
+  function stripLegacyNativeTitleMarquees(bar) {
+    if (!bar) return;
+    qsa(".deck-title-marquee", bar).forEach((wrap) => {
+      if (wrap.closest(".deck-media-title")) return;
+      const host = wrap.parentElement;
+      wrap.remove();
+      host?.classList.remove("deck-has-marquee", "deck-hide-duplicate-title");
+    });
+  }
+
   function fixPlayerBarLayout() {
     const bar = qs("ytmusic-player-bar");
     if (!bar) return;
+
+    stripLegacyNativeTitleMarquees(bar);
 
     qsa(".left-controls, .content-info-wrapper, .song-info, .deck-title-marquee", bar).forEach((el) => {
       el.style.removeProperty("width");
@@ -3054,11 +4305,13 @@ window.YTMDeck = (function () {
       el.style.removeProperty("flex-shrink");
     });
 
-    qsa(".content-info-wrapper .byline, .song-info .byline", bar).forEach((el) => {
-      el.style.display = "none";
+    qsa(".left-controls .byline-wrapper, .left-controls .byline", bar).forEach((el) => {
+      el.style.removeProperty("display");
+      el.style.removeProperty("visibility");
     });
 
     setupPlayerBarTitleMarquee(bar);
+    syncDeckMediaInfo(bar);
   }
 
   function fixPlayerBar() {
@@ -3071,7 +4324,9 @@ window.YTMDeck = (function () {
     fixPlayerBarLayout();
     fixPlayerBarProgress();
     fixPlayerBarVolume();
-    requestAnimationFrame(() => setupPlayerBarTitleMarquee(bar));
+    ensurePlayerBarToggle(bar);
+    syncDeckMediaInfo(bar);
+    requestAnimationFrame(() => syncDeckMediaInfo(bar));
   }
 
   function applyProgressKnobStyle(knob) {
@@ -3106,6 +4361,46 @@ window.YTMDeck = (function () {
         knob.style.setProperty("left", `${maxLeft}px`, "important");
       }
     }
+  }
+
+  function ensurePlayerBarToggle(bar) {
+    if (!bar) bar = qs("ytmusic-player-bar");
+    if (!bar) return;
+
+    const right = qs(".right-controls", bar);
+    const buttons = qs(".right-controls-buttons", right);
+    const toggle = qs(".toggle-player-page-button", bar);
+    if (!right || !toggle) return;
+
+    if (toggle.parentElement !== right) {
+      right.appendChild(toggle);
+    } else if (buttons?.parentElement === right) {
+      right.appendChild(toggle);
+    }
+
+    [
+      "display",
+      "visibility",
+      "width",
+      "min-width",
+      "max-width",
+      "height",
+      "min-height",
+      "max-height",
+      "opacity",
+      "pointer-events",
+      "margin",
+      "padding",
+      "transform",
+      "top",
+      "left",
+    ].forEach((prop) => toggle.style.removeProperty(prop));
+
+    qsa("button, yt-icon-button, tp-yt-paper-icon-button", toggle).forEach((btn) => {
+      ["width", "height", "min-width", "min-height", "max-width", "max-height", "margin", "padding", "transform", "top", "left"].forEach(
+        (prop) => btn.style.removeProperty(prop)
+      );
+    });
   }
 
   function fixPlayerBarVolume() {
@@ -3301,6 +4596,9 @@ window.YTMDeck = (function () {
       case "back":
         deckBack();
         break;
+      case "resetTouch":
+        resetTouchState(data?.reason || "command");
+        break;
       default:
         break;
     }
@@ -3390,6 +4688,7 @@ window.YTMDeck = (function () {
     applyDeckLayout,
     scheduleLayout,
     collectState,
+    resetTouchState,
     get ready() {
       return deckUiReady;
     },

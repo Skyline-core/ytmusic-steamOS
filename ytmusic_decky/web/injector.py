@@ -41,6 +41,9 @@ __ytmDeckWhenReady(function() {
     const root = document.documentElement;
     root.classList.add('ytm-deck-mode');
     root.setAttribute('data-ytm-deck', '1');
+    if (window.__YTM_DECK_TOUCH__) {
+      root.classList.add('ytm-deck-touch', 'ytm-deck-steam');
+    }
     root.style.setProperty(
       'background',
       'linear-gradient(160deg, #1f1035 0%, #0d0618 45%, #08040f 100%)',
@@ -158,10 +161,14 @@ class DeckInjector:
             except ValueError:
                 scale_hint = ""
         steam_hint = ""
-        if os.environ.get("YTMUSIC_DECKY_STEAM", "").strip().lower() in ("1", "true", "yes") or os.environ.get(
-            "SteamGameId"
-        ):
-            steam_hint = "window.__YTM_DECK_STEAM__ = 1;\n"
+        touch_ui = (
+            os.environ.get("YTMUSIC_DECKY_STEAM", "").strip().lower() in ("1", "true", "yes")
+            or os.environ.get("YTMUSIC_DECKY_HIDE_CURSOR", "").strip().lower() in ("1", "true", "yes")
+            or bool(os.environ.get("SteamGameId"))
+            or getattr(sys, "frozen", False)
+        )
+        if touch_ui:
+            steam_hint = "window.__YTM_DECK_STEAM__ = 1;\nwindow.__YTM_DECK_TOUCH__ = 1;\n"
         return (
             scale_hint
             + steam_hint
@@ -182,4 +189,12 @@ class DeckInjector:
         return PROBE_JS
 
     def profile_script_source(self) -> str:
-        return self._css_payload_js() + INJECT_CSS_JS
+        touch_hint = ""
+        if (
+            os.environ.get("YTMUSIC_DECKY_STEAM", "").strip().lower() in ("1", "true", "yes")
+            or os.environ.get("YTMUSIC_DECKY_HIDE_CURSOR", "").strip().lower() in ("1", "true", "yes")
+            or bool(os.environ.get("SteamGameId"))
+            or getattr(sys, "frozen", False)
+        ):
+            touch_hint = "window.__YTM_DECK_TOUCH__ = 1; window.__YTM_DECK_STEAM__ = 1;\n"
+        return touch_hint + self._css_payload_js() + INJECT_CSS_JS

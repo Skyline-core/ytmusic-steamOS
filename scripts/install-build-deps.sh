@@ -7,11 +7,33 @@ _install_build_deps() {
   local missing=()
   local cmd
 
+  has_compiler() {
+    command -v gcc >/dev/null 2>&1 || command -v cc >/dev/null 2>&1
+  }
+
+  has_python_headers() {
+    python3 - <<'PY' >/dev/null 2>&1
+import os
+import sysconfig
+
+include = sysconfig.get_config_var("INCLUDEPY")
+assert include and os.path.isdir(include)
+PY
+  }
+
   for cmd in python3 patchelf file wget mksquashfs; do
     if ! command -v "${cmd}" >/dev/null 2>&1; then
       missing+=("${cmd}")
     fi
   done
+
+  if ! has_compiler; then
+    missing+=("gcc/cc")
+  fi
+
+  if ! has_python_headers; then
+    missing+=("python3-headers")
+  fi
 
   if [[ "${#missing[@]}" -eq 0 ]]; then
     echo "==> Dependencias de build ya presentes"
@@ -76,7 +98,11 @@ _install_build_deps() {
   fi
 
   echo "error: no se encontró rpm-ostree, dnf, pacman ni apt-get." >&2
-  echo "Instala manualmente: python3 patchelf file wget gcc make" >&2
+  echo "Instala manualmente (como en packaging/Dockerfile.appimage):" >&2
+  echo "  python3 python3-venv python3-pip python3-dev build-essential" >&2
+  echo "  patchelf file wget mksquashfs binutils pkg-config" >&2
+  echo "  libdbus-1-dev libglib2.0-dev libgirepository1.0-dev libcairo2-dev" >&2
+  echo "  fuse libfuse2 ca-certificates" >&2
   exit 1
 }
 

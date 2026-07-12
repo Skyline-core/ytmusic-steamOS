@@ -14,7 +14,8 @@ jobs:
 
       - name: Build AppImage
         run: |
-          chmod +x scripts/build-appimage.sh packaging/AppRun
+          chmod +x scripts/build-appimage.sh scripts/install-build-deps.sh packaging/AppRun \
+            packaging/fix-bundle-libs.sh packaging/detect-ui-scale.sh packaging/setup-runtime-env.sh
           ./scripts/build-appimage.sh
 
       - name: Upload artifact
