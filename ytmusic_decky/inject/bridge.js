@@ -2930,6 +2930,74 @@ window.YTMDeck = (function () {
     });
   }
 
+  /** Volumen 0–1: primero el slider de la barra de controles (música o vídeo). */
+  function readVolume01() {
+    const slider = qs(
+      "ytmusic-player-bar #volume-slider, ytmusic-player-bar tp-yt-paper-slider.volume-slider, ytmusic-player-bar .volume-slider"
+    );
+    if (slider) {
+      const raw = Number(
+        slider.immediateValue ??
+          slider.value ??
+          slider.getAttribute?.("value") ??
+          slider.getAttribute?.("aria-valuenow")
+      );
+      if (Number.isFinite(raw)) {
+        // Paper-slider de YTM usa 0–100; a veces llega 0–1.
+        return raw > 1 ? Math.min(1, Math.max(0, raw / 100)) : Math.min(1, Math.max(0, raw));
+      }
+    }
+
+    const bar = qs("ytmusic-player-bar");
+    try {
+      if (typeof bar?.getVolume === "function") {
+        const v = Number(bar.getVolume());
+        if (Number.isFinite(v)) {
+          return v > 1 ? Math.min(1, Math.max(0, v / 100)) : Math.min(1, Math.max(0, v));
+        }
+      }
+    } catch (_) {
+      /* noop */
+    }
+    try {
+      const raw = bar?.volume ?? bar?.__data?.volume;
+      const v = Number(raw);
+      if (Number.isFinite(v)) {
+        return v > 1 ? Math.min(1, Math.max(0, v / 100)) : Math.min(1, Math.max(0, v));
+      }
+    } catch (_) {
+      /* noop */
+    }
+
+    // Respaldo: elemento multimedia (YTM usa <video> también en solo-audio).
+    const media = qs("video, audio");
+    if (media && Number.isFinite(media.volume)) return Math.min(1, Math.max(0, media.volume));
+    return 1;
+  }
+
+  function readMuted() {
+    const bar = qs("ytmusic-player-bar");
+    try {
+      if (typeof bar?.playerMuted === "boolean") return !!bar.playerMuted;
+      if (typeof bar?.isMuted === "boolean") return !!bar.isMuted;
+      if (typeof bar?.muted === "boolean") return !!bar.muted;
+      if (typeof bar?.__data?.muted === "boolean") return !!bar.__data.muted;
+    } catch (_) {
+      /* noop */
+    }
+    const muteBtn = qs(
+      "ytmusic-player-bar .volume, ytmusic-player-bar #mute-button, ytmusic-player-bar [aria-label*='Mute'], ytmusic-player-bar [aria-label*='Silenciar'], ytmusic-player-bar [aria-label*='Unmute'], ytmusic-player-bar [aria-label*='Activar']"
+    );
+    if (muteBtn) {
+      const label = (muteBtn.getAttribute("aria-label") || muteBtn.getAttribute("title") || "").toLowerCase();
+      if (/unmute|activar audio|activar sonido|restaurar/.test(label)) return true;
+      if (/mute|silenciar/.test(label) && !/unmute/.test(label)) return false;
+    }
+    const media = qs("video, audio");
+    if (media && typeof media.muted === "boolean") return !!media.muted;
+    return false;
+  }
+
   function collectState() {
     const video = getVideo();
     const duration = video ? video.duration || 0 : 0;
@@ -2970,8 +3038,8 @@ window.YTMDeck = (function () {
       lengthUs: Math.round(duration * 1_000_000),
       positionUs: Math.round(current * 1_000_000),
       playbackStatus,
-      volume: video ? video.volume : 1,
-      muted: video ? !!video.muted : false,
+      volume: readVolume01(),
+      muted: readMuted(),
       canPlay: !!video || !!title,
       canPause: !!video || !!title,
       canGoNext: !!qs('ytmusic-player-bar .next-button, ytmusic-player-bar [aria-label*="Next"], ytmusic-player-bar [aria-label*="Siguiente"]'),
@@ -6685,7 +6753,9 @@ window.YTMDeck = (function () {
   }
 
   function fixPlayerBarVolume() {
-    const slider = qs("ytmusic-player-bar #volume-slider, ytmusic-player-bar tp-yt-paper-slider.volume-slider");
+    const slider = qs(
+      "ytmusic-player-bar #volume-slider, ytmusic-player-bar tp-yt-paper-slider.volume-slider, ytmusic-player-bar .volume-slider"
+    );
     const right = qs("ytmusic-player-bar .right-controls");
     const buttons = qs("ytmusic-player-bar .right-controls-buttons");
     if (!slider || !right || !buttons) return;
@@ -6709,6 +6779,57 @@ window.YTMDeck = (function () {
     });
 
     applyVolumeKnobStyle(slider);
+    bindVolumeSliderReports(slider);
+  }
+
+  function bindVolumeSliderReports(slider) {
+    if (!slider || slider.dataset.deckVolumeBound === "1") return;
+    slider.dataset.deckVolumeBound = "1";
+
+    let reportTimer = null;
+    const scheduleReport = () => {
+      if (reportTimer) clearTimeout(reportTimer);
+      reportTimer = setTimeout(() => {
+        reportTimer = null;
+        reportState();
+      }, 60);
+    };
+
+    // Mientras arrastras el control deslizante de la barra (música o vídeo).
+    ["change", "immediate-value-change", "input", "value-changed"].forEach((evt) => {
+      slider.addEventListener(evt, scheduleReport, true);
+    });
+    ["pointerup", "pointercancel", "touchend", "mouseup"].forEach((evt) => {
+      slider.addEventListener(evt, scheduleReport, true);
+    });
+
+    const bar = qs("ytmusic-player-bar");
+    if (bar && bar.dataset.deckVolumeObs !== "1") {
+      bar.dataset.deckVolumeObs = "1";
+      try {
+        new MutationObserver(scheduleReport).observe(bar, {
+          attributes: true,
+          attributeFilter: ["volume", "muted", "is-muted", "aria-valuenow"],
+        });
+      } catch (_) {
+        /* noop */
+      }
+      // Clic en icono de volumen / mute de la barra.
+      bar.addEventListener(
+        "click",
+        (event) => {
+          if (
+            event.target.closest?.(
+              "#volume-slider, .volume-slider, .volume, #mute-button, [aria-label*='Mute'], [aria-label*='Silenciar'], [aria-label*='Unmute'], [aria-label*='volumen'], [aria-label*='Volume']"
+            )
+          ) {
+            scheduleReport();
+            setTimeout(scheduleReport, 120);
+          }
+        },
+        true
+      );
+    }
   }
 
   function fixPlayerBarProgress() {
@@ -6842,9 +6963,7 @@ window.YTMDeck = (function () {
     const level = Math.min(1, Math.max(0, Number(volume01)));
     if (!Number.isFinite(level)) return;
 
-    const video = getVideo();
-    if (video) video.volume = level;
-
+    // Preferir la barra / slider de controles (vale para música y vídeo).
     const bar = qs("ytmusic-player-bar");
     if (bar && typeof bar.setVolume === "function") {
       try {
@@ -6853,7 +6972,7 @@ window.YTMDeck = (function () {
     }
 
     const slider = qs(
-      "ytmusic-player-bar #volume-slider, ytmusic-player-bar tp-yt-paper-slider.volume-slider"
+      "ytmusic-player-bar #volume-slider, ytmusic-player-bar tp-yt-paper-slider.volume-slider, ytmusic-player-bar .volume-slider"
     );
     if (slider) {
       const pct = Math.round(level * 100);
@@ -6862,6 +6981,10 @@ window.YTMDeck = (function () {
       slider.dispatchEvent(new Event("immediate-value-change", { bubbles: true, composed: true }));
       slider.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
     }
+
+    // Respaldo en el elemento multimedia (también en solo-audio YTM usa <video>).
+    const media = qs("video, audio");
+    if (media && Number.isFinite(media.volume)) media.volume = level;
 
     fixPlayerBarVolume();
     updateDeckUi();
