@@ -65,6 +65,46 @@ window.YTMDeck = (function () {
     });
   }
 
+  let overlayInputSuppressUntil = 0;
+  let overlayFreezeTimer = null;
+
+  function suppressOverlayInput(ms) {
+    overlayInputSuppressUntil = Math.max(
+      overlayInputSuppressUntil,
+      performance.now() + Math.max(200, Number(ms) || 600)
+    );
+    const root = document.documentElement;
+    root.classList.add("ytm-deck-input-freeze");
+    if (overlayFreezeTimer) clearTimeout(overlayFreezeTimer);
+    const left = Math.max(0, overlayInputSuppressUntil - performance.now()) + 40;
+    overlayFreezeTimer = setTimeout(() => {
+      overlayFreezeTimer = null;
+      if (!isOverlayInputSuppressed()) {
+        root.classList.remove("ytm-deck-input-freeze");
+      }
+    }, left);
+  }
+
+  function isOverlayInputSuppressed() {
+    return performance.now() < overlayInputSuppressUntil;
+  }
+
+  function clearPressedUi() {
+    try {
+      const active = document.activeElement;
+      if (active && active !== document.body && typeof active.blur === "function") {
+        active.blur();
+      }
+    } catch (_) {
+      /* noop */
+    }
+    try {
+      window.getSelection?.()?.removeAllRanges?.();
+    } catch (_) {
+      /* noop */
+    }
+  }
+
   function resetTouchState(_reason) {
     for (const fn of touchResetHooks) {
       try {
@@ -74,8 +114,54 @@ window.YTMDeck = (function () {
       }
     }
     releaseAllPointerCaptures();
+    clearPressedUi();
     setQueueReordering(false);
     document.documentElement.classList.remove("ytm-deck-dragging");
+    // Menú Steam / Decky: evita reenviar el último toque al volver el foco.
+    if (
+      _reason === "lifecycle-hide" ||
+      _reason === "lifecycle-focus" ||
+      _reason === "qt-focus" ||
+      _reason === "qt-inactive" ||
+      _reason === "qt-active"
+    ) {
+      const hide =
+        _reason === "lifecycle-hide" || _reason === "qt-inactive";
+      suppressOverlayInput(hide ? 1200 : 800);
+    }
+  }
+
+  function bindOverlayClickGuard() {
+    if (window.__YTM_DECK_OVERLAY_GUARD__) return;
+    window.__YTM_DECK_OVERLAY_GUARD__ = true;
+
+    const block = (event) => {
+      if (!isOverlayInputSuppressed()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    [
+      "click",
+      "auxclick",
+      "dblclick",
+      "contextmenu",
+      "mousedown",
+      "mouseup",
+      "pointerdown",
+      "pointerup",
+      "touchstart",
+      "touchend",
+      "touchcancel",
+    ].forEach((type) => {
+      document.addEventListener(type, block, true);
+    });
+    document.addEventListener(
+      "pointercancel",
+      () => resetTouchState("pointercancel"),
+      true
+    );
   }
 
   function bindAppLifecycleTouchReset() {
@@ -85,11 +171,13 @@ window.YTMDeck = (function () {
     const onHide = () => resetTouchState("lifecycle-hide");
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState !== "visible") onHide();
+      else resetTouchState("lifecycle-focus");
     });
     window.addEventListener("blur", onHide);
     window.addEventListener("pagehide", onHide);
     document.addEventListener("freeze", onHide);
     window.addEventListener("focus", () => resetTouchState("lifecycle-focus"));
+    bindOverlayClickGuard();
   }
 
   function bindTouchCursorHide() {
@@ -141,6 +229,15 @@ window.YTMDeck = (function () {
 
   /** Reproductor expandido: estado real del DOM de YTM (no la clase deck). */
   function isPlayerPageOpen() {
+    const bar = qs("ytmusic-player-bar");
+    const page = qs("ytmusic-player-page, #player-page");
+    try {
+      if (typeof bar?.playerPageOpen === "boolean") return bar.playerPageOpen;
+      if (typeof page?.playerPageOpen === "boolean") return page.playerPageOpen;
+    } catch (_) {
+      /* noop */
+    }
+
     const btn = qs(
       "ytmusic-player-bar .toggle-player-page-button yt-icon-button, ytmusic-player-bar .toggle-player-page-button button"
     );
@@ -150,7 +247,6 @@ window.YTMDeck = (function () {
       if (/expand|abrir|open|mostrar|ampliar|maximizar/.test(aria)) return false;
     }
 
-    const page = qs("ytmusic-player-page, #player-page");
     if (!page || !isVisible(page)) return false;
     const rect = page.getBoundingClientRect();
     return rect.width > 120 && rect.height > 120;
@@ -164,6 +260,14 @@ window.YTMDeck = (function () {
       qs(".toggle-player-page-button tp-yt-paper-icon-button", bar) ||
       qs(".toggle-player-page-button button", bar)
     );
+  }
+
+  function markPlayerToggleProgrammatic(ms) {
+    window.__YTM_DECK_IGNORE_PLAYER_TOGGLE__ = performance.now() + (ms || 900);
+  }
+
+  function isPlayerToggleProgrammatic() {
+    return performance.now() < (window.__YTM_DECK_IGNORE_PLAYER_TOGGLE__ || 0);
   }
 
   function dispatchNativeClick(el) {
@@ -186,25 +290,6 @@ window.YTMDeck = (function () {
     el.dispatchEvent(new MouseEvent("click", base));
   }
 
-  function invokePlayerPageApis() {
-    const playerBar = qs("ytmusic-player-bar");
-    const app = qs("ytmusic-app");
-    const calls = [
-      () => playerBar?.togglePlayerPage?.(),
-      () => playerBar?.showPlayerPage?.(),
-      () => playerBar?.openPlayerPage?.(),
-      () => app?.togglePlayerPage?.(),
-      () => app?.showPlayerPage?.(),
-      () => app?.openPlayerPage?.(),
-      () => app?.setPageType?.("PLAYER_PAGE"),
-    ];
-    for (const call of calls) {
-      try {
-        call();
-      } catch (_) {}
-    }
-  }
-
   function enterPlayingViewForced() {
     setPlayingMode(true);
     fixPlayerPageLayout();
@@ -222,23 +307,25 @@ window.YTMDeck = (function () {
   }
 
   function openPlayerPage() {
+    markPlayerToggleProgrammatic(1000);
+    window.__YTM_DECK_PLAYER_CLOSED_UNTIL__ = 0;
+    window.__YTM_DECK_SKIP_WATCH_HISTORY__ = false;
+
     if (isPlayerPageOpen()) {
       syncPlayingView();
       return true;
     }
 
     const bar = qs("ytmusic-player-bar");
-    const toggleHost = qs(".toggle-player-page-button", bar);
     const btn = getPlayerPageToggleButton(bar);
-
-    invokePlayerPageApis();
-    [toggleHost, btn].filter(Boolean).forEach((el) => {
-      dispatchNativeClick(el);
-      el.click();
-    });
-
-    if (!isPlayerPageOpen()) enterPlayingViewForced();
-    else syncPlayingView();
+    // Un solo click: pointer+click duplicado reabre/minimiza en bucle.
+    if (btn) {
+      try {
+        btn.click();
+      } catch (_) {
+        dispatchNativeClick(btn);
+      }
+    }
 
     setTimeout(syncPlayingView, 250);
     setTimeout(syncPlayingView, 700);
@@ -246,26 +333,53 @@ window.YTMDeck = (function () {
   }
 
   function closePlayerPage() {
-    const pageOpen = isPlayerPageOpen();
-    const deckPlaying = document.documentElement.classList.contains("ytm-deck-playing");
-    if (!pageOpen && !deckPlaying) return false;
+    markPlayerToggleProgrammatic(1000);
+    window.__YTM_DECK_PLAYER_CLOSED_UNTIL__ = performance.now() + 6000;
 
-    if (pageOpen) {
-      const bar = qs("ytmusic-player-bar");
-      const btn = getPlayerPageToggleButton(bar);
-      const toggleHost = qs(".toggle-player-page-button", bar);
-      const aria = (btn?.getAttribute("aria-label") || "").toLowerCase();
-      if (btn && /cerrar|close|collapse|contraer/.test(aria)) {
-        dispatchNativeClick(btn);
-        btn.click();
-      } else if (toggleHost) {
-        dispatchNativeClick(toggleHost);
-        toggleHost.click();
+    const pageOpen = isPlayerPageOpen();
+    const bar = qs("ytmusic-player-bar");
+    const page = qs("ytmusic-player-page");
+    const polyOpen = !!(bar?.playerPageOpen || page?.playerPageOpen);
+    const deckPlaying = document.documentElement.classList.contains("ytm-deck-playing");
+    if (!pageOpen && !deckPlaying && !polyOpen) return false;
+
+    // Si cerramos desde /watch, YTM empuja browse encima del watch.
+    // El próximo B debe saltar esa entrada watch (go(-2)), no history.back().
+    const closingFromWatch = /\/watch/.test(location.pathname || "");
+
+    if (pageOpen || polyOpen) {
+      let closed = false;
+      try {
+        if (page && typeof page.onCollapseButtonClick === "function") {
+          page.onCollapseButtonClick();
+          closed = true;
+        }
+      } catch (_) {
+        closed = false;
+      }
+      if (!closed) {
+        const btn = getPlayerPageToggleButton(bar);
+        if (btn) {
+          try {
+            btn.click();
+          } catch (_) {
+            dispatchNativeClick(btn);
+          }
+        }
       }
     }
 
+    if (closingFromWatch) {
+      window.__YTM_DECK_SKIP_WATCH_HISTORY__ = true;
+      try {
+        clearTimeout(window.__YTM_DECK_SKIP_WATCH_TIMER__);
+      } catch (_) {}
+      window.__YTM_DECK_SKIP_WATCH_TIMER__ = setTimeout(() => {
+        window.__YTM_DECK_SKIP_WATCH_HISTORY__ = false;
+      }, 15000);
+    }
+
     exitPlayingViewForced();
-    setTimeout(syncPlayingView, 0);
     setTimeout(syncPlayingView, 350);
     setTimeout(() => {
       ensureSidebarExpanded();
@@ -275,8 +389,27 @@ window.YTMDeck = (function () {
   }
 
   function togglePlayerPageView() {
-    if (isPlayerPageOpen()) return closePlayerPage();
+    if (isPlayerPageOpen() || qs("ytmusic-player-bar")?.playerPageOpen) {
+      return closePlayerPage();
+    }
     return openPlayerPage();
+  }
+
+  function navigateHistoryBack() {
+    if (window.__YTM_DECK_SKIP_WATCH_HISTORY__) {
+      window.__YTM_DECK_SKIP_WATCH_HISTORY__ = false;
+      try {
+        clearTimeout(window.__YTM_DECK_SKIP_WATCH_TIMER__);
+      } catch (_) {}
+      // [browse, watch, browse] → saltar watch para no reanimar el toggle.
+      if (history.length > 1) {
+        history.go(-2);
+        return;
+      }
+    }
+    if (history.length > 1) {
+      history.back();
+    }
   }
 
   function isPlayingView() {
@@ -443,6 +576,119 @@ window.YTMDeck = (function () {
     return /patrocinado|sponsored|anuncio|advertisement/.test(title);
   }
 
+  function readMediaSessionMeta() {
+    try {
+      const meta = navigator.mediaSession?.metadata;
+      if (!meta) return { title: "", artist: "", album: "", artUrl: "" };
+      let artUrl = "";
+      const arts = meta.artwork || [];
+      if (arts.length) {
+        const sorted = [...arts].sort(
+          (a, b) => (Number(b.sizes?.split?.("x")?.[0]) || 0) - (Number(a.sizes?.split?.("x")?.[0]) || 0)
+        );
+        artUrl = sorted[0]?.src || arts[arts.length - 1]?.src || "";
+      }
+      return {
+        title: (meta.title || "").trim(),
+        artist: (meta.artist || "").trim(),
+        album: (meta.album || "").trim(),
+        artUrl: artUrl ? upscaleArtUrl(artUrl) : "",
+      };
+    } catch (_) {
+      return { title: "", artist: "", album: "", artUrl: "" };
+    }
+  }
+
+  function queryInTree(root, selectors) {
+    if (!root) return null;
+    let found = null;
+    const list = Array.isArray(selectors) ? selectors : [selectors];
+    forEachShadowRoot(root, (node) => {
+      if (found) return;
+      for (const sel of list) {
+        const el = qs(sel, node);
+        if (el) {
+          found = el;
+          return;
+        }
+      }
+    });
+    return found;
+  }
+
+  function textInTree(root, selectors) {
+    const el = queryInTree(root, selectors);
+    return el ? (el.textContent || "").trim() : "";
+  }
+
+  function readPlayerBarTitleDeep() {
+    const bar = qs("ytmusic-player-bar");
+    if (!bar) return "";
+    return (
+      textInTree(bar, [
+        ".deck-media-title",
+        ".deck-title-marquee[data-deck-original-text]",
+        ".title yt-formatted-string",
+        ".title a",
+        ".title",
+        "yt-formatted-string.title",
+      ]) ||
+      (qs(".deck-title-marquee[data-deck-original-text]", bar)?.dataset?.deckOriginalText || "").trim() ||
+      ""
+    );
+  }
+
+  function readPlayerBarArtistDeep() {
+    const bar = qs("ytmusic-player-bar");
+    if (!bar) return "";
+    const raw =
+      textInTree(bar, [
+        ".byline yt-formatted-string",
+        ".byline a",
+        ".byline",
+        ".subtitle",
+      ]) || "";
+    return parseArtistLabel(raw);
+  }
+
+  function readArtUrlDeep() {
+    const pick = (img) => {
+      if (!img) return "";
+      const url = img.currentSrc || img.src || "";
+      if (!url || url.startsWith("data:")) return "";
+      return upscaleArtUrl(url);
+    };
+    const bar = qs("ytmusic-player-bar");
+    if (bar) {
+      const img = queryInTree(bar, [
+        ".thumbnail-image-wrapper img",
+        "ytmusic-thumbnail-renderer img",
+        "yt-img-shadow img",
+        "img.image",
+        "img",
+      ]);
+      const url = pick(img);
+      if (url) return url;
+    }
+    const page = qs("ytmusic-player-page");
+    if (page) {
+      const img = queryInTree(page, ["#song-image img", "ytmusic-thumbnail-renderer img", "img"]);
+      const url = pick(img);
+      if (url) return url;
+    }
+    return "";
+  }
+
+  function readDocumentTitleMeta() {
+    const raw = (document.title || "").replace(/\s*-\s*YouTube Music\s*$/i, "").trim();
+    if (!raw || /^youtube music$/i.test(raw)) return { title: "", artist: "" };
+    const parts = raw.split(/\s+[•·|]\s+/);
+    if (parts.length >= 2) {
+      return { title: parts[0].trim(), artist: parts.slice(1).join(" • ").trim() };
+    }
+    return { title: raw, artist: "" };
+  }
+
   function readSongTitle() {
     if (isAdPlaying()) {
       const queueTitle = readText(
@@ -450,11 +696,17 @@ window.YTMDeck = (function () {
       );
       if (queueTitle) return queueTitle;
     }
-    return readBarTitle();
+    const bar = readBarTitle() || readPlayerBarTitleDeep();
+    if (bar) return bar;
+    const deck = readText(".deck-now-playing-meta .deck-title");
+    if (deck) return deck;
+    const ms = readMediaSessionMeta().title;
+    if (ms) return ms;
+    return readDocumentTitleMeta().title;
   }
 
   function readSongArtist() {
-    const live = readLivePlayerBarArtist();
+    const live = readLivePlayerBarArtist() || readPlayerBarArtistDeep();
     if (live) return live;
 
     const queueArtist = readQueueArtist();
@@ -462,7 +714,13 @@ window.YTMDeck = (function () {
 
     if (isAdPlaying()) return "";
 
-    return readBarArtist();
+    const bar = readBarArtist();
+    if (bar) return bar;
+    const deck = readText(".deck-now-playing-meta .deck-artist");
+    if (deck) return deck;
+    const ms = readMediaSessionMeta().artist;
+    if (ms) return ms;
+    return readDocumentTitleMeta().artist;
   }
 
   function upscaleArtUrl(url) {
@@ -487,23 +745,50 @@ window.YTMDeck = (function () {
   }
 
   function readArtUrl() {
-    const candidates = [
+    const deep = readArtUrlDeep();
+    if (deep) return deep;
+
+    const pick = (img) => {
+      if (!img) return "";
+      const url = img.currentSrc || img.src || "";
+      if (!url || url.startsWith("data:")) return "";
+      return upscaleArtUrl(url);
+    };
+
+    const bar = qs("ytmusic-player-bar");
+    const candidates = [];
+    if (bar) {
+      candidates.push(
+        qs(".thumbnail-image-wrapper img", bar),
+        qs("img.image", bar),
+        qs(".song-image img", bar),
+        qs("yt-img-shadow img", bar),
+        qs("img", bar)
+      );
+    }
+    candidates.push(
+      qs("ytmusic-player-page img"),
       qs("ytmusic-playlist-panel-video-renderer[selected] img"),
       qs("ytmusic-queue-item[selected] img"),
       qs("ytmusic-player-bar .thumbnail-image-wrapper img"),
       qs("ytmusic-player-bar img.image"),
       qs("ytmusic-player-bar .song-image img"),
-      qs("ytmusic-player-bar img"),
-    ];
+      qs("ytmusic-player-bar img")
+    );
 
     for (const img of candidates) {
-      if (img?.src && !img.src.startsWith("data:")) {
-        return upscaleArtUrl(img.src);
-      }
+      const url = pick(img);
+      if (url) return url;
     }
+
+    const msArt = readMediaSessionMeta().artUrl;
+    if (msArt) return msArt;
 
     const video = getVideo();
     if (video?.poster) return upscaleArtUrl(video.poster);
+
+    const vid = readVideoId();
+    if (vid) return `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`;
     return "";
   }
 
@@ -1100,27 +1385,487 @@ window.YTMDeck = (function () {
     );
   }
 
-  function readLoopStatus() {
-    const repeat = qs(
-      'ytmusic-player-bar [aria-label*="Repeat"], ytmusic-player-bar [aria-label*="Repetir"]'
-    );
-    if (!repeat) return "None";
-    const label = (repeat.getAttribute("aria-label") || "").toLowerCase();
-    if (label.includes("one") || label.includes("una")) return "Track";
-    if (label.includes("all") || label.includes("todas") || label.includes("activado"))
+  function findControlButton(barSelectors, fallbackSelectors) {
+    const bar = qs("ytmusic-player-bar");
+    if (bar) {
+      // Preferir zonas de controles del player-bar (evita "Shuffle play" de colas/tarjetas).
+      const regions = [
+        ".middle-controls",
+        ".left-controls",
+        ".right-controls-buttons",
+        ".right-controls",
+        "#left-controls",
+        "#right-controls",
+      ];
+      for (const region of regions) {
+        const regionRoot =
+          queryInTree(bar, [region]) ||
+          (bar.shadowRoot && qs(region, bar.shadowRoot)) ||
+          qs(region, bar);
+        if (!regionRoot) continue;
+        const hit = queryInTree(regionRoot, barSelectors);
+        if (hit) return hit;
+      }
+      const hit = queryInTree(bar, barSelectors);
+      if (hit) return hit;
+    }
+    return qs(fallbackSelectors);
+  }
+
+  function readRepeatFromBarHost() {
+    const bar = qs("ytmusic-player-bar");
+    if (!bar) return null;
+    let mode =
+      bar.getAttribute("repeat-mode") ||
+      bar.getAttribute("repeatMode") ||
+      null;
+    try {
+      if (!mode && bar.repeatMode != null) mode = String(bar.repeatMode);
+      if (!mode && bar.__data?.repeatMode != null) mode = String(bar.__data.repeatMode);
+    } catch (_) {
+      /* noop */
+    }
+    if (!mode) return null;
+    const m = String(mode).toUpperCase();
+    if (m === "NONE") return "None";
+    if (m === "ONE" || m === "TRACK") return "Track";
+    if (m === "ALL" || m === "PLAYLIST") return "Playlist";
+    return null;
+  }
+
+  function readShuffleFromBarHost() {
+    const bar = qs("ytmusic-player-bar");
+    if (!bar) return null;
+    try {
+      if (typeof bar.shuffleOn === "boolean") return bar.shuffleOn;
+      if (typeof bar.shuffleEnabled === "boolean") return bar.shuffleEnabled;
+      if (typeof bar.shuffle === "boolean") return bar.shuffle;
+      if (typeof bar.shuffleMode === "boolean") return bar.shuffleMode;
+      if (typeof bar.__data?.shuffleOn === "boolean") return bar.__data.shuffleOn;
+      if (typeof bar.__data?.shuffle === "boolean") return bar.__data.shuffle;
+      if (typeof bar.__data?.shuffleMode === "boolean") return bar.__data.shuffleMode;
+    } catch (_) {
+      /* noop */
+    }
+    for (const name of ["shuffle-mode", "shuffle", "shuffling", "is-shuffling"]) {
+      if (!bar.hasAttribute(name)) continue;
+      const v = (bar.getAttribute(name) || "").toLowerCase();
+      if (v === "false" || v === "off" || v === "0") return false;
+      return true;
+    }
+    // CSS themes: ytmusic-player-bar.shuffle / [shuffle]
+    if (bar.classList.contains("shuffle") || bar.classList.contains("shuffling")) return true;
+    return null;
+  }
+
+  function shuffleSelectors() {
+    return [
+      "tp-yt-paper-icon-button.shuffle",
+      "paper-icon-button.shuffle",
+      ".shuffle",
+      "yt-button-shape.shuffle button",
+      '[aria-label*="Shuffle"]',
+      '[aria-label*="Aleatorio"]',
+      '[aria-label*="shuffle"]',
+      '[aria-label*="aleatorio"]',
+    ];
+  }
+
+  function repeatSelectors() {
+    return [
+      "tp-yt-paper-icon-button.repeat",
+      "paper-icon-button.repeat",
+      ".repeat",
+      "yt-button-shape.repeat button",
+      '[aria-label*="Repeat"]',
+      '[aria-label*="Repetir"]',
+      '[aria-label*="repeat"]',
+      '[aria-label*="repet"]',
+    ];
+  }
+
+  function readLoopStatusFromButton(repeat) {
+    if (!repeat) return null;
+    const pressed = repeat.getAttribute("aria-pressed");
+    const label = (
+      repeat.getAttribute("aria-label") ||
+      repeat.getAttribute("title") ||
+      ""
+    ).toLowerCase();
+
+    if (
+      /una canci|repeat one|\bone\b|track|1 canci/.test(label) ||
+      repeat.classList.contains("repeat-one")
+    ) {
+      return "Track";
+    }
+    if (
+      /todas|todo|repeat all|\ball\b|playlist|cola|album/.test(label) ||
+      repeat.classList.contains("repeat-all") ||
+      (pressed === "true" && !/off|desactiv|none|sin repet/.test(label))
+    ) {
       return "Playlist";
-    return "None";
+    }
+    if (/off|none|sin repet|no repet|desactivad/.test(label) && !/una|todas|all|one/.test(label)) {
+      return "None";
+    }
+    if (pressed === "true") return "Playlist";
+    if (pressed === "false") return "None";
+    return null;
+  }
+
+  function readLoopStatus() {
+    const ov = window.__YTM_DECK_LOOP_OVERRIDE__;
+    if (ov && performance.now() < ov.until) {
+      const live =
+        readRepeatFromBarHost() ||
+        readLoopStatusFromButton(
+          findControlButton(
+            repeatSelectors(),
+            'ytmusic-player-bar .repeat, ytmusic-player-bar tp-yt-paper-icon-button.repeat, ytmusic-player-bar [aria-label*="Repeat"], ytmusic-player-bar [aria-label*="Repetir"]'
+          )
+        );
+      // Solo soltar override cuando el DOM confirma el valor pedído.
+      if (live === ov.value) {
+        window.__YTM_DECK_LOOP_OVERRIDE__ = null;
+        return live;
+      }
+      return ov.value;
+    }
+    const fromHost = readRepeatFromBarHost();
+    if (fromHost) return fromHost;
+    return readLoopStatusFromButton(
+      findControlButton(
+        repeatSelectors(),
+        'ytmusic-player-bar .repeat, ytmusic-player-bar tp-yt-paper-icon-button.repeat, ytmusic-player-bar [aria-label*="Repeat"], ytmusic-player-bar [aria-label*="Repetir"]'
+      )
+    );
+  }
+
+  function readShuffleFromButton(shuffle) {
+    if (!shuffle) return null;
+    const pressed = shuffle.getAttribute("aria-pressed");
+    if (pressed === "true") return true;
+    if (pressed === "false") return false;
+
+    const label = (
+      shuffle.getAttribute("aria-label") ||
+      shuffle.getAttribute("title") ||
+      ""
+    ).toLowerCase();
+
+    // Tooltips de acción: "Desactivar aleatorio" = ahora ESTÁ activo.
+    if (/desactivar|turn off|disable shuffle|apag/.test(label)) return true;
+    if (/(?:^|[^a-záéíóú])activar(?!do)|turn on|enable shuffle|encend/.test(label)) {
+      return false;
+    }
+    if (/activado|enabled|\bon\b|aleatorio on/.test(label)) return true;
+    if (/desactivad|disabled|\boff\b|aleatorio off/.test(label)) return false;
+
+    if (
+      shuffle.classList.contains("style-default-active") ||
+      (shuffle.hasAttribute("aria-checked") && shuffle.getAttribute("aria-checked") === "true")
+    ) {
+      return true;
+    }
+    return null;
   }
 
   function readShuffle() {
-    const shuffle = qs(
-      'ytmusic-player-bar [aria-label*="Shuffle"], ytmusic-player-bar [aria-label*="Aleatorio"]'
+    const ov = window.__YTM_DECK_SHUFFLE_OVERRIDE__;
+    if (ov && performance.now() < ov.until) {
+      const liveHost = readShuffleFromBarHost();
+      const liveBtn = readShuffleFromButton(
+        findControlButton(
+          shuffleSelectors(),
+          'ytmusic-player-bar .shuffle, ytmusic-player-bar tp-yt-paper-icon-button.shuffle, ytmusic-player-bar [aria-label*="Shuffle"], ytmusic-player-bar [aria-label*="Aleatorio"]'
+        )
+      );
+      const live = liveHost != null ? liveHost : liveBtn;
+      if (live === ov.value) {
+        window.__YTM_DECK_SHUFFLE_OVERRIDE__ = null;
+        return live;
+      }
+      return ov.value;
+    }
+    const fromHost = readShuffleFromBarHost();
+    if (fromHost != null) return fromHost;
+    return readShuffleFromButton(
+      findControlButton(
+        shuffleSelectors(),
+        'ytmusic-player-bar .shuffle, ytmusic-player-bar tp-yt-paper-icon-button.shuffle, ytmusic-player-bar [aria-label*="Shuffle"], ytmusic-player-bar [aria-label*="Aleatorio"]'
+      )
     );
-    if (!shuffle) return false;
-    const pressed = shuffle.getAttribute("aria-pressed");
-    if (pressed != null) return pressed === "true";
-    const label = (shuffle.getAttribute("aria-label") || "").toLowerCase();
-    return label.includes("on") || label.includes("activado");
+  }
+
+  function synthClick(el) {
+    // Fallback genérico (cola, etc.). Para shuffle/repeat preferir tapPlayerMode.
+    if (!el) return false;
+    try {
+      el.click();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function tapPlayerMode(kind) {
+    // Handlers Polymer en ytmusic-player-bar: un solo avance por llamada.
+    // el.click() en YT-ICON-BUTTON dispara listeners internos + bubbling y
+    // avanza repeat 2 veces (NONE→ALL→ONE) y re-mezcla la cola varias veces.
+    const bar = qs("ytmusic-player-bar");
+    if (bar) {
+      try {
+        if (kind === "repeat" && typeof bar.onRepeatButtonClick === "function") {
+          bar.onRepeatButtonClick();
+          return true;
+        }
+        if (kind === "shuffle" && typeof bar.onShuffleButtonClick === "function") {
+          bar.onShuffleButtonClick();
+          return true;
+        }
+      } catch (_) {
+        /* caer al botón DOM */
+      }
+    }
+    const btn =
+      kind === "repeat"
+        ? findControlButton(
+            repeatSelectors(),
+            'ytmusic-player-bar .repeat, ytmusic-player-bar tp-yt-paper-icon-button.repeat, ytmusic-player-bar [aria-label*="Repeat"], ytmusic-player-bar [aria-label*="Repetir"]'
+          )
+        : findControlButton(
+            shuffleSelectors(),
+            'ytmusic-player-bar .shuffle, ytmusic-player-bar tp-yt-paper-icon-button.shuffle, ytmusic-player-bar [aria-label*="Shuffle"], ytmusic-player-bar [aria-label*="Aleatorio"]'
+          );
+    return synthClick(btn);
+  }
+
+  function clickRepeat(times) {
+    const n = Math.max(1, Math.min(5, Number(times) || 1));
+    let i = 0;
+    const step = () => {
+      if (i >= n) {
+        scheduleStateReports();
+        return;
+      }
+      i += 1;
+      window.__YTM_DECK_IGNORE_MODE_CLICK__ = performance.now() + 800;
+      tapPlayerMode("repeat");
+      setTimeout(step, 400);
+    };
+    step();
+    return true;
+  }
+
+  function ensureRepeat(desiredStatus) {
+    // desiredStatus: "None" | "Playlist" | "Track"
+    // Un solo tap: el API ya calculó el siguiente modo (iteration=1).
+    const order = ["None", "Playlist", "Track"];
+    if (!order.includes(desiredStatus)) {
+      return clickRepeat(1);
+    }
+
+    window.__YTM_DECK_LOOP_OVERRIDE__ = {
+      value: desiredStatus,
+      until: performance.now() + 3500,
+    };
+    const live =
+      readRepeatFromBarHost() ||
+      readLoopStatusFromButton(
+        findControlButton(
+          repeatSelectors(),
+          'ytmusic-player-bar .repeat, ytmusic-player-bar tp-yt-paper-icon-button.repeat, ytmusic-player-bar [aria-label*="Repeat"], ytmusic-player-bar [aria-label*="Repetir"]'
+        )
+      ) ||
+      "None";
+    if (live === desiredStatus) {
+      reportState();
+      return true;
+    }
+    window.__YTM_DECK_IGNORE_MODE_CLICK__ = performance.now() + 800;
+    if (!tapPlayerMode("repeat")) return false;
+    setTimeout(() => reportState(), 350);
+    setTimeout(() => reportState(), 900);
+    return true;
+  }
+
+  function ensureShuffle(desired) {
+    // Un solo tap via onShuffleButtonClick (evita saltos de cola).
+    const current = readShuffle();
+    if (typeof desired === "boolean") {
+      if (current === desired) {
+        window.__YTM_DECK_SHUFFLE_OVERRIDE__ = {
+          value: desired,
+          until: performance.now() + 2500,
+        };
+        reportState();
+        return true;
+      }
+      window.__YTM_DECK_SHUFFLE_OVERRIDE__ = {
+        value: desired,
+        until: performance.now() + 3500,
+      };
+      window.__YTM_DECK_IGNORE_MODE_CLICK__ = performance.now() + 800;
+      if (!tapPlayerMode("shuffle")) return false;
+      setTimeout(() => {
+        reportState();
+        setTimeout(() => {
+          primeQueueForApi();
+          reportState();
+        }, 900);
+      }, 500);
+      return true;
+    }
+    const flipped = current == null ? true : !current;
+    window.__YTM_DECK_SHUFFLE_OVERRIDE__ = {
+      value: flipped,
+      until: performance.now() + 3500,
+    };
+    window.__YTM_DECK_IGNORE_MODE_CLICK__ = performance.now() + 800;
+    const ok = tapPlayerMode("shuffle");
+    setTimeout(() => {
+      primeQueueForApi();
+      reportState();
+    }, 900);
+    return ok;
+  }
+
+  function clickShuffle() {
+    return ensureShuffle(undefined);
+  }
+
+  function bindPlayerModeObservers() {
+    if (window.__YTM_DECK_MODE_OBS__) return;
+    window.__YTM_DECK_MODE_OBS__ = true;
+
+    const ping = () => {
+      try {
+        reportState();
+      } catch (_) {
+        /* noop */
+      }
+    };
+
+    const attachBar = () => {
+      const bar = qs("ytmusic-player-bar");
+      if (!bar || bar.__ytmDeckModeObs) return;
+      bar.__ytmDeckModeObs = true;
+      new MutationObserver(() => {
+        setTimeout(ping, 50);
+      }).observe(bar, {
+        attributes: true,
+        attributeFilter: [
+          "repeat-mode",
+          "shuffle",
+          "shuffle-mode",
+          "shuffling",
+          "class",
+        ],
+      });
+    };
+
+    attachBar();
+    setInterval(attachBar, 2000);
+
+    // Toque manual en el reproductor → override + report para Decky.
+    document.addEventListener(
+      "click",
+      (event) => {
+        const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+        const nodes = path.length ? path : [event.target];
+        let kind = null;
+        for (const node of nodes) {
+          if (!node || typeof node.getAttribute !== "function") continue;
+          const label = (
+            node.getAttribute("aria-label") ||
+            node.getAttribute("title") ||
+            (typeof node.className === "string" ? node.className : "") ||
+            ""
+          ).toString();
+          if (/shuffle|aleatorio/i.test(label) || (node.classList && node.classList.contains("shuffle"))) {
+            kind = "shuffle";
+            break;
+          }
+          if (/repeat|repetir/i.test(label) || (node.classList && node.classList.contains("repeat"))) {
+            kind = "repeat";
+            break;
+          }
+        }
+        if (!kind) return;
+        // Ignorar clics sintéticos desde ensureShuffle/ensureRepeat.
+        if (performance.now() < (window.__YTM_DECK_IGNORE_MODE_CLICK__ || 0)) return;
+
+        if (kind === "shuffle") {
+          // Leer DOM real, no el override del API (si no, !before invierte mal).
+          const saved = window.__YTM_DECK_SHUFFLE_OVERRIDE__;
+          window.__YTM_DECK_SHUFFLE_OVERRIDE__ = null;
+          const before =
+            readShuffleFromBarHost() ??
+            readShuffleFromButton(
+              findControlButton(
+                shuffleSelectors(),
+                'ytmusic-player-bar .shuffle, ytmusic-player-bar tp-yt-paper-icon-button.shuffle, ytmusic-player-bar [aria-label*="Shuffle"], ytmusic-player-bar [aria-label*="Aleatorio"]'
+              )
+            );
+          if (saved && performance.now() < saved.until && before == null) {
+            window.__YTM_DECK_SHUFFLE_OVERRIDE__ = saved;
+          }
+          const guess = before == null ? null : !before;
+          if (guess != null) {
+            window.__YTM_DECK_SHUFFLE_OVERRIDE__ = {
+              value: guess,
+              until: performance.now() + 4000,
+            };
+          } else {
+            setTimeout(() => {
+              const after =
+                readShuffleFromBarHost() ??
+                readShuffleFromButton(
+                  findControlButton(
+                    shuffleSelectors(),
+                    'ytmusic-player-bar .shuffle, ytmusic-player-bar tp-yt-paper-icon-button.shuffle, ytmusic-player-bar [aria-label*="Shuffle"], ytmusic-player-bar [aria-label*="Aleatorio"]'
+                  )
+                );
+              if (after != null) {
+                window.__YTM_DECK_SHUFFLE_OVERRIDE__ = {
+                  value: after,
+                  until: performance.now() + 4000,
+                };
+              }
+              ping();
+            }, 100);
+          }
+        } else {
+          // Tras el click nativo, leer en microtask el modo nuevo.
+          setTimeout(() => {
+            const saved = window.__YTM_DECK_LOOP_OVERRIDE__;
+            window.__YTM_DECK_LOOP_OVERRIDE__ = null;
+            const after =
+              readRepeatFromBarHost() ||
+              readLoopStatusFromButton(
+                findControlButton(
+                  repeatSelectors(),
+                  'ytmusic-player-bar .repeat, ytmusic-player-bar tp-yt-paper-icon-button.repeat, ytmusic-player-bar [aria-label*="Repeat"], ytmusic-player-bar [aria-label*="Repetir"]'
+                )
+              );
+            if (after) {
+              window.__YTM_DECK_LOOP_OVERRIDE__ = {
+                value: after,
+                until: performance.now() + 4000,
+              };
+            } else if (saved && performance.now() < saved.until) {
+              window.__YTM_DECK_LOOP_OVERRIDE__ = saved;
+            }
+            ping();
+          }, 80);
+        }
+        setTimeout(ping, 120);
+        setTimeout(ping, 450);
+        setTimeout(ping, 1000);
+      },
+      true
+    );
   }
 
   function isValidArtImg(img) {
@@ -1258,61 +2003,320 @@ window.YTMDeck = (function () {
     return active;
   }
 
-  function readVideoId() {
-    const video = getVideo();
-    if (video?.currentSrc) {
-      const m = video.currentSrc.match(/[?&/]v[=\/]([\w-]{11})/);
-      if (m) return m[1];
-    }
-    const link = qs(
-      "ytmusic-player-bar a[href*='watch?v='], ytmusic-player-bar a[href*='youtu.be/'], ytmusic-player-bar a[href*='/watch/']"
-    );
-    if (link?.href) {
-      const m = link.href.match(/[?&]v=([\w-]{11})/) || link.href.match(/youtu\.be\/([\w-]{11})/);
-      if (m) return m[1];
+  function isPlaceholderThumbUrl(url) {
+    if (!url || typeof url !== "string") return true;
+    if (url.startsWith("data:")) return true;
+    if (url.includes("placeholder")) return true;
+    return false;
+  }
+
+  function pickImageUrl(img) {
+    if (!img) return "";
+    const candidates = [
+      img.currentSrc,
+      img.src,
+      img.getAttribute?.("data-src"),
+      img.getAttribute?.("data-thumb"),
+      img.getAttribute?.("data-url"),
+    ];
+    for (const raw of candidates) {
+      const url = (raw || "").trim();
+      if (!url || isPlaceholderThumbUrl(url)) continue;
+      if (url.startsWith("data:")) continue;
+      return url;
     }
     return "";
   }
 
-  function queueElements() {
-    return qsa(
-      "#side-panel ytmusic-queue-item, #side-panel ytmusic-playlist-panel-video-renderer, #side-panel ytmusic-player-queue-item, ytmusic-queue-item, ytmusic-playlist-panel-video-renderer"
+  function extractVideoIdFromText(text) {
+    if (!text) return "";
+    const m =
+      String(text).match(/[?&]v=([\w-]{11})/) ||
+      String(text).match(/youtu\.be\/([\w-]{11})/) ||
+      String(text).match(/\/(?:watch|shorts|embed)\/([\w-]{11})/) ||
+      String(text).match(/\/vi\/([\w-]{11})\//) ||
+      String(text).match(/"videoId"\s*:\s*"([\w-]{11})"/);
+    return m ? m[1] : "";
+  }
+
+  function readDomProp(el, ...names) {
+    if (!el) return undefined;
+    for (const name of names) {
+      try {
+        if (el[name] != null && el[name] !== "") return el[name];
+      } catch (_) {}
+      try {
+        if (el.__data && el.__data[name] != null && el.__data[name] !== "") {
+          return el.__data[name];
+        }
+      } catch (_) {}
+      try {
+        if (el.data && el.data[name] != null && el.data[name] !== "") {
+          return el.data[name];
+        }
+      } catch (_) {}
+    }
+    return undefined;
+  }
+
+  function videoIdFromUnknown(value) {
+    if (!value) return "";
+    if (typeof value === "string") {
+      if (/^[\w-]{11}$/.test(value)) return value;
+      return extractVideoIdFromText(value);
+    }
+    if (typeof value === "object") {
+      const direct = value.videoId || value.video_id || value.id;
+      if (typeof direct === "string" && /^[\w-]{11}$/.test(direct)) return direct;
+      try {
+        return extractVideoIdFromText(JSON.stringify(value).slice(0, 4000));
+      } catch (_) {
+        return "";
+      }
+    }
+    return "";
+  }
+
+  function thumbFromUnknown(value) {
+    if (!value) return "";
+    if (typeof value === "string" && !isPlaceholderThumbUrl(value)) return value;
+    if (typeof value !== "object") return "";
+    const list =
+      value.thumbnails ||
+      value.sources ||
+      (Array.isArray(value) ? value : null) ||
+      value.thumbnail?.thumbnails;
+    if (Array.isArray(list)) {
+      for (let i = list.length - 1; i >= 0; i -= 1) {
+        const u = list[i]?.url || list[i]?.src || "";
+        if (u && !isPlaceholderThumbUrl(u)) return u;
+      }
+    }
+    const nested = value.url || value.src;
+    if (typeof nested === "string" && !isPlaceholderThumbUrl(nested)) return nested;
+    return "";
+  }
+
+  function readVideoId() {
+    try {
+      const player =
+        document.getElementById("movie_player") ||
+        qs(".html5-video-player") ||
+        qs("ytmusic-player");
+      const data = player?.getVideoData?.();
+      const id = data?.video_id || data?.videoId;
+      if (id && /^[\w-]{11}$/.test(id)) return id;
+    } catch (_) {}
+
+    const video = getVideo();
+    const fromSrc = extractVideoIdFromText(video?.currentSrc || video?.src || "");
+    if (fromSrc) return fromSrc;
+
+    const attrHosts = [
+      qs("ytmusic-player-bar"),
+      qs("ytmusic-player-page"),
+      qs("ytmusic-app-layout"),
+      qs("ytmusic-player"),
+    ];
+    for (const el of attrHosts) {
+      if (!el) continue;
+      const fromProp = videoIdFromUnknown(
+        readDomProp(el, "videoId", "video_id", "currentVideoId")
+      );
+      if (fromProp) return fromProp;
+      for (const name of ["video-id", "videoId", "data-video-id"]) {
+        const v = el.getAttribute?.(name);
+        if (v && /^[\w-]{11}$/.test(v)) return v;
+      }
+    }
+
+    const link = qs(
+      "ytmusic-player-bar a[href*='watch?v='], ytmusic-player-bar a[href*='youtu.be/'], ytmusic-player-bar a[href*='/watch/'], ytmusic-player-page a[href*='watch?v=']"
     );
+    const fromLink = extractVideoIdFromText(link?.href || "");
+    if (fromLink) return fromLink;
+
+    try {
+      const fromLoc = extractVideoIdFromText(location.href);
+      if (fromLoc) return fromLoc;
+      const fromHash = extractVideoIdFromText(location.hash || "");
+      if (fromHash) return fromHash;
+    } catch (_) {}
+
+    for (const item of queueElements()) {
+      const selected =
+        item.hasAttribute("selected") ||
+        item.classList.contains("playing") ||
+        item.getAttribute("aria-selected") === "true";
+      if (!selected) continue;
+      const id =
+        videoIdFromUnknown(readDomProp(item, "videoId", "video_id")) ||
+        item.getAttribute("video-id") ||
+        extractVideoIdFromText(qs("a[href*='v=']", item)?.href || "") ||
+        extractVideoIdFromText(item.outerHTML?.slice?.(0, 4000) || "");
+      if (id) return id;
+    }
+
+    return "";
+  }
+
+  function queueElements() {
+    const selectors = [
+      "#side-panel ytmusic-player-queue-item",
+      "#side-panel ytmusic-queue-item",
+      "#side-panel ytmusic-playlist-panel-video-renderer",
+      "ytmusic-player-page ytmusic-player-queue-item",
+      "ytmusic-player-page ytmusic-queue-item",
+      "ytmusic-player-page ytmusic-playlist-panel-video-renderer",
+      "ytmusic-tabbed-queue ytmusic-player-queue-item",
+      "ytmusic-tabbed-queue ytmusic-queue-item",
+      "ytmusic-tabbed-queue ytmusic-playlist-panel-video-renderer",
+      "ytmusic-player-queue-item",
+      "ytmusic-queue-item",
+      "ytmusic-playlist-panel-video-renderer",
+    ];
+    const seen = new Set();
+    const items = [];
+    for (const sel of selectors) {
+      for (const el of qsa(sel)) {
+        if (!seen.has(el)) {
+          seen.add(el);
+          items.push(el);
+        }
+      }
+    }
+    return items;
   }
 
   function readQueueItemData(item) {
-    const title =
-      readText(".song-title, #title, .title", item) ||
-      readText(".song-title a, #title a", item) ||
+    const roots = [];
+    if (item?.shadowRoot) roots.push(item.shadowRoot);
+    if (item) roots.push(item);
+
+    let title = "";
+    let artist = "";
+    let thumbUrl = thumbFromUnknown(
+      readDomProp(item, "thumbnail", "thumbnails", "thumbnailData")
+    );
+    let link = null;
+    let videoId =
+      videoIdFromUnknown(readDomProp(item, "videoId", "video_id")) ||
+      item.getAttribute?.("video-id") ||
       "";
-    const artist = readText(".byline, .subtitle, yt-formatted-string.byline", item) || "";
-    const thumb = qs("img", item);
-    const url = thumb?.currentSrc || thumb?.src || "";
+    for (const root of roots) {
+      if (!title) {
+        title =
+          readText(".song-title, #title, .title", root) ||
+          readText(".song-title a, #title a", root) ||
+          "";
+      }
+      if (!artist) artist = readText(".byline, .subtitle, yt-formatted-string.byline", root) || "";
+      if (!thumbUrl) {
+        for (const img of qsa("img", root)) {
+          const url = pickImageUrl(img);
+          if (url) {
+            thumbUrl = url;
+            break;
+          }
+        }
+      }
+      if (!thumbUrl) {
+        const shadowHost = qs("yt-img-shadow#thumbnail, yt-img-shadow.thumbnail, #thumbnail", root);
+        thumbUrl =
+          pickImageUrl(qs("img", shadowHost || root)) ||
+          thumbFromUnknown(readDomProp(shadowHost, "thumbnail", "thumbnails", "imageSrc"));
+      }
+      if (!link) link = qs("a[href*='v='], a[href*='youtu.be/'], a.yt-simple-endpoint", root);
+      if (!videoId) {
+        videoId =
+          qs("[video-id]", root)?.getAttribute("video-id") ||
+          extractVideoIdFromText(link?.href || "") ||
+          videoId;
+      }
+    }
+
+    if (!videoId && link?.href) {
+      videoId = extractVideoIdFromText(link.href);
+    }
+    if (!thumbUrl && videoId) {
+      thumbUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    }
+
     const selected =
       item.hasAttribute("selected") ||
       item.classList.contains("playing") ||
       item.getAttribute("aria-selected") === "true";
     const duration = readText(".duration, .badge-style-type, .length", item) || "";
-    let videoId = "";
-    const link = qs("a[href*='v='], a[href*='youtu.be/']", item);
-    if (link?.href) {
-      const m = link.href.match(/[?&]v=([\w-]{11})/) || link.href.match(/youtu\.be\/([\w-]{11})/);
-      if (m) videoId = m[1];
+
+    // Si es la pista actual y el DOM aún no hidrató thumb, usa carátula del player.
+    if (selected && !thumbUrl) {
+      thumbUrl = readArtUrl() || "";
     }
+    if (selected && !videoId) {
+      // Evitar recursión infinita: preferir fuentes locales.
+      try {
+        const player =
+          document.getElementById("movie_player") || qs(".html5-video-player");
+        const id = player?.getVideoData?.()?.video_id;
+        if (id && /^[\w-]{11}$/.test(id)) videoId = id;
+      } catch (_) {}
+    }
+
     return {
       playlistPanelVideoRenderer: {
         title: { runs: [{ text: title }] },
         shortBylineText: { runs: [{ text: artist }] },
-        thumbnail: { thumbnails: url ? [{ url }] : [] },
-        videoId,
+        thumbnail: { thumbnails: thumbUrl ? [{ url: thumbUrl }] : [] },
+        videoId: videoId || "",
         selected,
         lengthText: duration ? { runs: [{ text: duration }] } : undefined,
       },
     };
   }
 
+  function buildCurrentTrackQueueItem() {
+    const title = readSongTitle();
+    if (!title) return null;
+    const art = readArtUrl();
+    return {
+      playlistPanelVideoRenderer: {
+        title: { runs: [{ text: title }] },
+        shortBylineText: { runs: [{ text: readSongArtist() }] },
+        thumbnail: { thumbnails: art ? [{ url: art }] : [] },
+        videoId: readVideoId(),
+        selected: true,
+      },
+    };
+  }
+
   function collectQueue() {
-    return { items: queueElements().map(readQueueItemData) };
+    const items = queueElements()
+      .map(readQueueItemData)
+      .filter((item) => item.playlistPanelVideoRenderer?.title?.runs?.[0]?.text);
+    if (items.length > 0) return { items };
+    const current = buildCurrentTrackQueueItem();
+    return { items: current ? [current] : [] };
+  }
+
+  function primeQueueForApi() {
+    if (queueElements().length > 0) {
+      reportState();
+      return;
+    }
+    if (!readSongTitle()) return;
+
+    // No reabrir la vista de reproducción si el usuario acaba de minimizar con B.
+    if (
+      !isPlayerPageOpen() &&
+      performance.now() >= (window.__YTM_DECK_PLAYER_CLOSED_UNTIL__ || 0)
+    ) {
+      openPlayerPage();
+    }
+    ensureQueueTab();
+    ensureQueueItemMenus();
+    [400, 900, 1600].forEach((ms) => {
+      setTimeout(() => reportState(), ms);
+    });
   }
 
   function queueJumpToIndex(index) {
@@ -1364,18 +2368,36 @@ window.YTMDeck = (function () {
     const duration = video ? video.duration || 0 : 0;
     const current = video ? video.currentTime || 0 : 0;
     const paused = video ? video.paused : true;
-    const title = readSongTitle() || readText(".deck-now-playing-meta .deck-title");
-    const artist = readSongArtist() || readText(".deck-now-playing-meta .deck-artist");
+    const ms = readMediaSessionMeta();
+    const title =
+      readSongTitle() ||
+      readText(".deck-now-playing-meta .deck-title") ||
+      ms.title ||
+      "";
+    const artist =
+      readSongArtist() ||
+      readText(".deck-now-playing-meta .deck-artist") ||
+      ms.artist ||
+      "";
+    const artUrl = readArtUrl() || ms.artUrl || "";
 
     let playbackStatus = "Stopped";
-    if (video && duration > 0) playbackStatus = paused ? "Paused" : "Playing";
-    else if (title) playbackStatus = paused ? "Paused" : "Playing";
+    if (video && Number.isFinite(duration) && duration > 0) {
+      playbackStatus = paused ? "Paused" : "Playing";
+    } else if (title) {
+      // MediaSession / título presentes: si no hay <video> usable, asumimos playing
+      // salvo que mediaSession diga lo contrario.
+      const msState = navigator.mediaSession?.playbackState;
+      if (msState === "paused") playbackStatus = "Paused";
+      else if (msState === "playing" || !paused) playbackStatus = "Playing";
+      else playbackStatus = paused ? "Paused" : "Playing";
+    }
 
     return {
       title,
       artist,
-      album: "",
-      artUrl: readArtUrl(),
+      album: ms.album || "",
+      artUrl,
       trackId: (title + artist).replace(/\s+/g, "_").slice(0, 80),
       videoId: readVideoId(),
       lengthUs: Math.round(duration * 1_000_000),
@@ -1383,8 +2405,8 @@ window.YTMDeck = (function () {
       playbackStatus,
       volume: video ? video.volume : 1,
       muted: video ? !!video.muted : false,
-      canPlay: !!video,
-      canPause: !!video,
+      canPlay: !!video || !!title,
+      canPause: !!video || !!title,
       canGoNext: !!qs('ytmusic-player-bar .next-button, ytmusic-player-bar [aria-label*="Next"], ytmusic-player-bar [aria-label*="Siguiente"]'),
       canGoPrevious: !!qs('ytmusic-player-bar .previous-button, ytmusic-player-bar [aria-label*="Previous"], ytmusic-player-bar [aria-label*="Anterior"]'),
       canSeek: !!video && duration > 0,
@@ -1395,7 +2417,16 @@ window.YTMDeck = (function () {
   }
 
   function reportState() {
-    if (!window.bridge || !window.bridge.reportState) return;
+    if (!window.bridge || !window.bridge.reportState) {
+      // Canal Qt aún no listo: reintentar en breve.
+      if (!window.__YTM_DECK_REPORT_RETRY__) {
+        window.__YTM_DECK_REPORT_RETRY__ = setTimeout(() => {
+          window.__YTM_DECK_REPORT_RETRY__ = null;
+          reportState();
+        }, 400);
+      }
+      return;
+    }
     try {
       window.bridge.reportState(JSON.stringify(collectState()));
     } catch (_) {}
@@ -1549,9 +2580,10 @@ window.YTMDeck = (function () {
 
   function setPlayingMode(playing) {
     const changed = playing !== lastPlaying;
+    lastPlaying = !!playing;
+    // Siempre forzar la clase: si quedó desincronizada, toggle solo-on-change no la limpia.
+    document.documentElement.classList.toggle("ytm-deck-playing", !!playing);
     if (changed) {
-      lastPlaying = playing;
-      document.documentElement.classList.toggle("ytm-deck-playing", playing);
       syncAccountBarPlacement();
     }
   }
@@ -2958,12 +3990,40 @@ window.YTMDeck = (function () {
     document.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
   }
 
-  function deckBack() {
+  let lastDeckBackAt = 0;
+  let lastGamepadBAt = 0;
+
+  function isRecentGamepadB(maxMs) {
+    return performance.now() - lastGamepadBAt < (maxMs || 280);
+  }
+
+  function deckBack(opts) {
+    // B del mando: minimizar / atrás.
+    // Escape suelto (menú Steam/Decky) NO debe tocar el reproductor.
+    const fromEscape = !!(opts && opts.fromEscape);
+    const allowMinimize = !fromEscape || isRecentGamepadB(320);
+    const allowHistory = !fromEscape || isRecentGamepadB(320);
+
+    const now = performance.now();
+    if (now - lastDeckBackAt < 450) return;
+    lastDeckBackAt = now;
+
     if (closeOpenPopups()) return;
 
-    if (isPlayerPageOpen() || document.documentElement.classList.contains("ytm-deck-playing")) {
+    const bar = qs("ytmusic-player-bar");
+    const polyOpen = !!bar?.playerPageOpen;
+    const pageOpen = isPlayerPageOpen();
+
+    // Solo minimizar con B real del control (o Escape acoplado a ese B).
+    if (pageOpen || polyOpen) {
+      if (!allowMinimize) return;
       closePlayerPage();
       return;
+    }
+
+    // Clase deck colgada sin página abierta: limpiar y seguir atrás.
+    if (document.documentElement.classList.contains("ytm-deck-playing")) {
+      exitPlayingViewForced();
     }
 
     const searchOpen = qs("ytmusic-search-box[opened], ytmusic-search-box[visible]");
@@ -2972,9 +4032,8 @@ window.YTMDeck = (function () {
       return;
     }
 
-    if (window.history.length > 1) {
-      window.history.back();
-    }
+    if (!allowHistory) return;
+    navigateHistoryBack();
   }
 
   function getDeckScrollTarget(horizontal) {
@@ -3564,8 +4623,14 @@ window.YTMDeck = (function () {
       (event) => {
         if (isTextField(event.target)) return;
         if (event.key === "Escape") {
+          // Tragar siempre: si no, YTM / overlays reaccionan al Escape del menú Steam/Decky.
           event.preventDefault();
-          deckBack();
+          event.stopPropagation();
+          if (typeof event.stopImmediatePropagation === "function") {
+            event.stopImmediatePropagation();
+          }
+          // Solo si el Escape viene del B del mando (Steam a veces traduce B→Escape).
+          deckBack({ fromEscape: true });
           return;
         }
         if (event.key === "Enter" && !event.repeat) {
@@ -3576,6 +4641,14 @@ window.YTMDeck = (function () {
       },
       true
     );
+
+    // Al navegar con history, re-sincronizar la vista deck (sin reabrir tras B).
+    window.addEventListener("popstate", () => {
+      setTimeout(() => {
+        if (isPlayerToggleProgrammatic()) return;
+        syncPlayingView();
+      }, 100);
+    });
 
     window.addEventListener("gamepadconnected", () => {
       logBridge("gamepad conectado");
@@ -3588,7 +4661,10 @@ window.YTMDeck = (function () {
         const prev = prevButtons.get(pad.index) || [];
 
         if (pad.buttons[0]?.pressed && !prev[0]) deckActivate();
-        if (pad.buttons[1]?.pressed && !prev[1]) deckBack();
+        if (pad.buttons[1]?.pressed && !prev[1]) {
+          lastGamepadBAt = performance.now();
+          deckBack();
+        }
 
         const rx = pad.axes[2] ?? 0;
         const ry = pad.axes[3] ?? 0;
@@ -3851,14 +4927,15 @@ window.YTMDeck = (function () {
   }
 
   function bindPlayerToggle() {
-    if (window.__YTM_DECK_TOGGLE_V3__) return;
-    window.__YTM_DECK_TOGGLE_V3__ = true;
+    if (window.__YTM_DECK_TOGGLE_V4__) return;
+    window.__YTM_DECK_TOGGLE_V4__ = true;
 
     let toggleWasOpen = null;
 
     document.addEventListener(
       "pointerdown",
       (event) => {
+        if (isPlayerToggleProgrammatic()) return;
         if (!event.target.closest("ytmusic-player-bar .toggle-player-page-button")) return;
         if (event.button !== 0) return;
         toggleWasOpen = isPlayerPageOpen();
@@ -3869,12 +4946,17 @@ window.YTMDeck = (function () {
     document.addEventListener(
       "pointerup",
       (event) => {
+        if (isPlayerToggleProgrammatic()) {
+          toggleWasOpen = null;
+          return;
+        }
         if (!event.target.closest("ytmusic-player-bar .toggle-player-page-button")) return;
         if (event.button !== 0 && event.pointerType !== "touch") return;
 
         const wasOpen = toggleWasOpen;
         toggleWasOpen = null;
         setTimeout(() => {
+          if (isPlayerToggleProgrammatic()) return;
           const nowOpen = isPlayerPageOpen();
           if (wasOpen === true && nowOpen === false) {
             syncPlayingView();
@@ -3884,6 +4966,7 @@ window.YTMDeck = (function () {
             syncPlayingView();
             return;
           }
+          // Solo corregir toques reales del usuario si YTM no cambió el DOM.
           if (wasOpen === false && nowOpen === false) openPlayerPage();
           else if (wasOpen === true && nowOpen === true) closePlayerPage();
         }, 80);
@@ -5079,6 +6162,45 @@ window.YTMDeck = (function () {
     deckUiReady = true;
   }
 
+  function applyVolumeLevel(volume01) {
+    const level = Math.min(1, Math.max(0, Number(volume01)));
+    if (!Number.isFinite(level)) return;
+
+    const video = getVideo();
+    if (video) video.volume = level;
+
+    const bar = qs("ytmusic-player-bar");
+    if (bar && typeof bar.setVolume === "function") {
+      try {
+        bar.setVolume(level * 100);
+      } catch (_) {}
+    }
+
+    const slider = qs(
+      "ytmusic-player-bar #volume-slider, ytmusic-player-bar tp-yt-paper-slider.volume-slider"
+    );
+    if (slider) {
+      const pct = Math.round(level * 100);
+      if ("value" in slider) slider.value = pct;
+      if ("immediateValue" in slider) slider.immediateValue = pct;
+      slider.dispatchEvent(new Event("immediate-value-change", { bubbles: true, composed: true }));
+      slider.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+    }
+
+    fixPlayerBarVolume();
+    updateDeckUi();
+    reportState();
+  }
+
+  function scheduleStateReports() {
+    [150, 450, 1000].forEach((ms) => {
+      setTimeout(() => {
+        reportState();
+        updateDeckUi();
+      }, ms);
+    });
+  }
+
   function scheduleLayout() {
     if (layoutTimer) clearTimeout(layoutTimer);
     layoutTimer = setTimeout(applyDeckLayout, 600);
@@ -5088,15 +6210,30 @@ window.YTMDeck = (function () {
     const video = getVideo();
     switch (command) {
       case "play":
-        if (video) video.play();
-        else click("ytmusic-player-bar .play-pause-button");
+        if (video) {
+          try { video.play(); } catch (_) {}
+        } else {
+          click("ytmusic-player-bar .play-pause-button, ytmusic-player-bar #play-pause-button");
+        }
         break;
       case "pause":
-        if (video) video.pause();
-        else click("ytmusic-player-bar .play-pause-button");
+        if (video) {
+          try { video.pause(); } catch (_) {}
+        } else {
+          click("ytmusic-player-bar .play-pause-button, ytmusic-player-bar #play-pause-button");
+        }
         break;
       case "playPause":
-        click("ytmusic-player-bar .play-pause-button");
+        if (video) {
+          try {
+            if (video.paused) video.play();
+            else video.pause();
+          } catch (_) {
+            click("ytmusic-player-bar .play-pause-button, ytmusic-player-bar #play-pause-button");
+          }
+        } else {
+          click("ytmusic-player-bar .play-pause-button, ytmusic-player-bar #play-pause-button");
+        }
         break;
       case "next":
         click('ytmusic-player-bar .next-button, ytmusic-player-bar [aria-label*="Next"], ytmusic-player-bar [aria-label*="Siguiente"]');
@@ -5109,24 +6246,33 @@ window.YTMDeck = (function () {
           video.currentTime = Math.max(0, video.currentTime + Number(data.offsetUs || 0) / 1_000_000);
         break;
       case "setPosition":
-        if (video) video.currentTime = Number(data.positionUs || 0) / 1_000_000;
+        if (video) {
+          video.currentTime = Number(data.positionUs || 0) / 1_000_000;
+          reportState();
+        }
         break;
       case "setVolume":
-        if (video && Number.isFinite(Number(data.volume)))
-          video.volume = Math.min(1, Math.max(0, Number(data.volume)));
+        applyVolumeLevel(Number(data.volume));
         break;
       case "seekTo":
-        if (video && Number.isFinite(Number(data.seconds)))
+        if (video && Number.isFinite(Number(data.seconds))) {
           video.currentTime = Math.max(0, Number(data.seconds));
+          reportState();
+        }
         break;
       case "toggleMute":
         if (video) video.muted = !video.muted;
+        updateDeckUi();
         break;
       case "setShuffle":
-        click('ytmusic-player-bar [aria-label*="Shuffle"], ytmusic-player-bar [aria-label*="Aleatorio"]');
+        ensureShuffle(typeof data?.shuffle === "boolean" ? data.shuffle : undefined);
         break;
       case "setLoop":
-        click('ytmusic-player-bar [aria-label*="Repeat"], ytmusic-player-bar [aria-label*="Repetir"]');
+        if (data?.status === "None" || data?.status === "Playlist" || data?.status === "Track") {
+          ensureRepeat(data.status);
+        } else {
+          clickRepeat(Number(data?.iteration) || 1);
+        }
         break;
       case "queueIndex":
         if (Number.isFinite(Number(data.index))) queueJumpToIndex(Number(data.index));
@@ -5141,7 +6287,11 @@ window.YTMDeck = (function () {
         deckActivate();
         break;
       case "back":
-        deckBack();
+        // Qt Escape / comando "back": mismo criterio que Escape JS (no menú sistema).
+        deckBack({ fromEscape: true });
+        break;
+      case "refreshQueue":
+        primeQueueForApi();
         break;
       case "resetTouch":
         resetTouchState(data?.reason || "command");
@@ -5151,19 +6301,29 @@ window.YTMDeck = (function () {
     }
     setTimeout(() => {
       scheduleLayout();
-      reportState();
-    }, 200);
+      scheduleStateReports();
+    }, 0);
   }
 
   function bindVideoEvents() {
     const video = getVideo();
     if (!video || video.dataset.deckBound) return;
     video.dataset.deckBound = "1";
-    video.addEventListener("play", scheduleLayout);
-    video.addEventListener("pause", scheduleLayout);
+    const onPlaybackChange = () => {
+      scheduleLayout();
+      reportState();
+    };
+    video.addEventListener("play", onPlaybackChange);
+    video.addEventListener("pause", onPlaybackChange);
     video.addEventListener("loadedmetadata", scheduleLayout);
+    video.addEventListener("seeked", () => {
+      reportState();
+    });
     video.addEventListener("timeupdate", updateDeckUi);
-    video.addEventListener("volumechange", updateDeckUi);
+    video.addEventListener("volumechange", () => {
+      updateDeckUi();
+      reportState();
+    });
   }
 
   function observeDom() {
@@ -5195,6 +6355,7 @@ window.YTMDeck = (function () {
     bindPlayerBarOpenGuard();
     bindDeckInput();
     bindQueuePanelTouch();
+    bindPlayerModeObservers();
     observeDom();
 
     if (!pollTimer) {

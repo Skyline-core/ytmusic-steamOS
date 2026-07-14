@@ -44,6 +44,12 @@ class PlayerState:
         default_factory=list, repr=False
     )
     _last_api_track_id: str = field(default="", repr=False)
+    _last_api_song_sig: str = field(default="", repr=False)
+    # Tras POST /shuffle|/switch-repeat evita que un scrape erróneo revierta el WS.
+    _sticky_shuffle_until: float = field(default=0.0, repr=False)
+    _sticky_shuffle_set_at: float = field(default=0.0, repr=False)
+    _sticky_loop_until: float = field(default=0.0, repr=False)
+    _sticky_loop_set_at: float = field(default=0.0, repr=False)
 
     def subscribe(self, callback: Callable[[], None]) -> None:
         with self._lock:
@@ -60,24 +66,32 @@ class PlayerState:
             except Exception:
                 pass
 
+    def _emit_api(self, event_type: str, payload: dict[str, Any]) -> None:
+        for callback in list(self._api_listeners):
+            try:
+                callback(event_type, payload)
+            except Exception:
+                pass
+
     def build_player_info_event(self) -> tuple[str, dict[str, Any]]:
         snap = self.snapshot()
         return "PLAYER_INFO", self._player_info_payload(snap)
 
     def update_from_web(self, payload: dict[str, Any]) -> None:
         prev = self.snapshot()
+        now = time.monotonic()
         with self._lock:
             self.metadata = TrackMetadata(
-                title=payload.get("title", ""),
-                artist=payload.get("artist", ""),
-                album=payload.get("album", ""),
-                art_url=payload.get("artUrl", ""),
-                track_id=payload.get("trackId", ""),
-                video_id=payload.get("videoId", ""),
-                length_us=int(payload.get("lengthUs", 0)),
+                title=payload.get("title", "") or "",
+                artist=payload.get("artist", "") or "",
+                album=payload.get("album", "") or "",
+                art_url=payload.get("artUrl", "") or "",
+                track_id=payload.get("trackId", "") or "",
+                video_id=payload.get("videoId", "") or "",
+                length_us=int(payload.get("lengthUs", 0) or 0),
             )
             self.playback_status = payload.get("playbackStatus", "Stopped")
-            self.position_us = int(payload.get("positionUs", 0))
+            self.position_us = int(payload.get("positionUs", 0) or 0)
             self.position_monotonic = time.monotonic()
             self.volume = float(payload.get("volume", self.volume))
             self.muted = bool(payload.get("muted", False))
@@ -86,17 +100,69 @@ class PlayerState:
             self.can_go_next = bool(payload.get("canGoNext", False))
             self.can_go_previous = bool(payload.get("canGoPrevious", False))
             self.can_seek = bool(payload.get("canSeek", False))
-            self.shuffle = bool(payload.get("shuffle", False))
-            self.loop_status = payload.get("loopStatus", "None")
+
+            web_shuffle = payload.get("shuffle", None)
+            if web_shuffle is None:
+                pass  # scrape desconocido: conservar sticky/estado
+            elif now < self._sticky_shuffle_until:
+                if bool(web_shuffle) == self.shuffle:
+                    self._sticky_shuffle_until = 0.0
+                elif now - self._sticky_shuffle_set_at < 1.0:
+                    # Primer segundo: proteger optimistic API frente a scrapes malos.
+                    pass
+                else:
+                    # DOM definitivo (tocaste el reproductor): confiar y avisar a Decky.
+                    self.shuffle = bool(web_shuffle)
+                    self._sticky_shuffle_until = 0.0
+            else:
+                self.shuffle = bool(web_shuffle)
+
+            web_loop = payload.get("loopStatus", None)
+            if web_loop is None:
+                pass
+            elif web_loop not in ("None", "Track", "Playlist"):
+                pass
+            elif now < self._sticky_loop_until:
+                if web_loop == self.loop_status:
+                    self._sticky_loop_until = 0.0
+                elif now - self._sticky_loop_set_at < 1.0:
+                    pass
+                else:
+                    self.loop_status = web_loop
+                    self._sticky_loop_until = 0.0
+            else:
+                self.loop_status = web_loop
+
             queue = payload.get("queue")
             if isinstance(queue, list):
                 self.queue_items = queue
         self._notify_api_deltas(prev)
         self._notify()
 
+    def set_playback_status(self, status: str, *, emit: bool = True) -> None:
+        prev = self.snapshot()
+        with self._lock:
+            self.playback_status = status
+            self.position_monotonic = time.monotonic()
+        if emit:
+            self._notify_api_deltas(prev)
+            self._notify()
+
+    def _song_signature(self, snap: dict[str, Any]) -> str:
+        meta = snap["metadata"]
+        return "|".join(
+            [
+                meta.video_id or "",
+                meta.track_id or "",
+                meta.title or "",
+                meta.artist or "",
+                meta.art_url or "",
+                snap["playback_status"],
+            ]
+        )
+
     def _notify_api_deltas(self, prev: dict[str, Any]) -> None:
-        listeners = list(self._api_listeners)
-        if not listeners:
+        if not self._api_listeners:
             return
 
         snap = self.snapshot()
@@ -118,7 +184,7 @@ class PlayerState:
                 )
             )
 
-        if abs(snap["position_us"] - prev.get("position_us", 0)) > 1_500_000:
+        if abs(snap["position_us"] - prev.get("position_us", 0)) > 750_000:
             events.append(
                 (
                     "POSITION_CHANGED",
@@ -126,7 +192,10 @@ class PlayerState:
                 )
             )
 
-        if snap["volume"] != prev.get("volume") or snap["muted"] != prev.get("muted"):
+        if (
+            abs(snap["volume"] - float(prev.get("volume", 0))) > 0.005
+            or snap["muted"] != prev.get("muted")
+        ):
             events.append(
                 (
                     "VOLUME_CHANGED",
@@ -148,12 +217,14 @@ class PlayerState:
                 )
             )
 
+        # Decky solo rellena título/carátula desde PLAYER_INFO / VIDEO_CHANGED.
+        song_sig = self._song_signature(snap)
+        if song_sig != self._last_api_song_sig and (meta.title or meta.art_url):
+            self._last_api_song_sig = song_sig
+            events.append(("PLAYER_INFO", self._player_info_payload(snap)))
+
         for event_type, payload in events:
-            for callback in listeners:
-                try:
-                    callback(event_type, payload)
-                except Exception:
-                    pass
+            self._emit_api(event_type, payload)
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -187,14 +258,15 @@ class PlayerState:
         meta = snap["metadata"]
         position_s = snap["position_us"] // 1_000_000
         duration_s = meta.length_us // 1_000_000 if meta.length_us else 0
-        art = meta.art_url
+        art = meta.art_url or ""
+        # Formato compatible con decky-youtube-music / th-ch API Server.
         return {
-            "title": meta.title,
-            "artist": meta.artist,
-            "album": meta.album,
+            "title": meta.title or "",
+            "artist": meta.artist or "",
+            "album": meta.album or "",
             "albumArt": art,
             "imageSrc": art,
-            "videoId": meta.video_id,
+            "videoId": meta.video_id or "",
             "isPaused": snap["playback_status"] != "Playing",
             "elapsedSeconds": position_s,
             "songDuration": duration_s,
@@ -203,8 +275,7 @@ class PlayerState:
     def _player_info_payload(self, snap: dict[str, Any] | None = None) -> dict[str, Any]:
         if snap is None:
             snap = self.snapshot()
-        return {
-            "song": self._song_payload(snap),
+        payload = {
             "isPlaying": snap["playback_status"] == "Playing",
             "position": snap["position_us"] // 1_000_000,
             "repeat": self._map_repeat(snap["loop_status"]),
@@ -212,19 +283,92 @@ class PlayerState:
             "volume": round(snap["volume"] * 100),
             "muted": snap["muted"],
         }
+        meta = snap["metadata"]
+        # No mandar song vacío: Decky sobrescribe y deja "Nothing playing".
+        if meta.title or meta.art_url or meta.video_id:
+            payload["song"] = self._song_payload(snap)
+        return payload
 
     def companion_song(self) -> dict[str, Any]:
         return self._song_payload()
 
+    def _current_queue_item(self) -> dict[str, Any] | None:
+        meta = self.metadata
+        if not meta.title and not meta.video_id:
+            return None
+        art = meta.art_url or ""
+        return {
+            "playlistPanelVideoRenderer": {
+                "title": {"runs": [{"text": meta.title or "Playing"}]},
+                "shortBylineText": {"runs": [{"text": meta.artist or ""}]},
+                "thumbnail": {"thumbnails": [{"url": art}] if art else []},
+                "videoId": meta.video_id or "",
+                "selected": True,
+            }
+        }
+
     def companion_queue(self) -> dict[str, Any]:
         with self._lock:
-            return {"items": list(self.queue_items)}
+            items = list(self.queue_items)
+        if items:
+            # Evitar items vacíos (título en blanco → Decky muestra Unknown).
+            filled = []
+            for item in items:
+                renderer = (
+                    item.get("playlistPanelVideoRenderer")
+                    if isinstance(item, dict)
+                    else None
+                )
+                title = ""
+                if isinstance(renderer, dict):
+                    runs = (renderer.get("title") or {}).get("runs") or []
+                    if runs:
+                        title = str(runs[0].get("text") or "")
+                if title.strip():
+                    filled.append(item)
+            if filled:
+                return {"items": filled}
+        fallback = self._current_queue_item()
+        return {"items": [fallback] if fallback else []}
 
     def companion_volume(self) -> dict[str, Any]:
         with self._lock:
             return {"state": round(self.volume * 100), "isMuted": self.muted}
 
+    def set_shuffle(self, shuffle: bool, *, emit: bool = True) -> None:
+        prev = self.snapshot()
+        now = time.monotonic()
+        with self._lock:
+            self.shuffle = bool(shuffle)
+            self._sticky_shuffle_set_at = now
+            self._sticky_shuffle_until = now + 12.0
+        if emit:
+            self._notify_api_deltas(prev)
+            self._notify()
+
+    def set_loop_status(self, loop_status: str, *, emit: bool = True) -> None:
+        prev = self.snapshot()
+        now = time.monotonic()
+        with self._lock:
+            self.loop_status = loop_status
+            self._sticky_loop_set_at = now
+            self._sticky_loop_until = now + 12.0
+        if emit:
+            self._notify_api_deltas(prev)
+            self._notify()
+
+    def set_position_seconds(self, seconds: float, *, emit: bool = True) -> None:
+        prev = self.snapshot()
+        with self._lock:
+            self.position_us = max(0, int(float(seconds) * 1_000_000))
+            self.position_monotonic = time.monotonic()
+        if emit:
+            self._notify_api_deltas(prev)
+            self._notify()
+
     def set_volume(self, volume: float) -> None:
+        prev = self.snapshot()
         with self._lock:
             self.volume = max(0.0, min(1.0, volume))
+        self._notify_api_deltas(prev)
         self._notify()

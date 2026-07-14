@@ -31,10 +31,42 @@ ytmusic_host_lib_path() {
   printf '%s' "${dirs[*]}"
 }
 
+ytmusic_pyside6_qt_dir() {
+  local python="${1:?python}"
+  "${python}" -c "
+import os
+import PySide6
+print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt'))
+" 2>/dev/null || true
+}
+
+ytmusic_setup_pyside6_qt_env() {
+  local python="${1:?python}"
+  local qt_dir="${2:-$(ytmusic_pyside6_qt_dir "${python}")}"
+  [[ -n "${qt_dir}" && -d "${qt_dir}/lib" ]] || return 0
+
+  export LD_LIBRARY_PATH="${qt_dir}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+  export QT_PLUGIN_PATH="${qt_dir}/plugins"
+  export QML2_IMPORT_PATH="${qt_dir}/qml"
+  if [[ -x "${qt_dir}/libexec/QtWebEngineProcess" ]]; then
+    export QTWEBENGINEPROCESS_PATH="${qt_dir}/libexec/QtWebEngineProcess"
+  fi
+  if [[ -d "${qt_dir}/resources" ]]; then
+    export QTWEBENGINE_RESOURCES_PATH="${qt_dir}/resources"
+  fi
+  if [[ -d "${qt_dir}/translations/qtwebengine_locales" ]]; then
+    export QTWEBENGINE_LOCALES_PATH="${qt_dir}/translations/qtwebengine_locales"
+  fi
+  export QTWEBENGINE_DISABLE_SANDBOX=1
+}
+
 ytmusic_setup_ld_library_path() {
   local root internal qt host
   root="$(ytmusic_app_root)"
   internal="${root}/_internal"
+  if [[ ! -d "${internal}/PySide6/Qt/lib" ]]; then
+    return 0
+  fi
   qt="${internal}/PySide6/Qt"
   host="$(ytmusic_host_lib_path)"
 

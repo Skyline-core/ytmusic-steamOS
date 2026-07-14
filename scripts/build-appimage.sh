@@ -164,12 +164,12 @@ python3 -m venv "${VENV}"
 # shellcheck disable=SC1091
 source "${VENV}/bin/activate"
 pip install --upgrade pip wheel setuptools
-pip install pyinstaller "PySide6>=6.6.0"
+pip install pyinstaller "PySide6>=6.6.0" "aiohttp>=3.9.0"
 if ! pip install dbus-python PyGObject; then
   echo "warning: no se pudo instalar dbus-python/PyGObject (MPRIS puede quedar desactivado en runtime)" >&2
   echo "warning: en Docker esto suele compilar porque están libdbus/glib dev headers." >&2
 fi
-pip install -e "${ROOT}" --no-deps
+pip install -e "${ROOT}"
 
 ENTRY="${ROOT}/ytmusic_decky/__main__.py"
 if [[ ! -f "${ENTRY}" ]]; then

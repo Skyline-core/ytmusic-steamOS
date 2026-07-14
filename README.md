@@ -18,18 +18,77 @@ sudo pacman -S python python-pyside6 python-dbus python-gobject qt6-webengine
 
 # Fedora / Bazzite
 sudo dnf install python3 python3-pyside6 python3-dbus python3-gobject qt6-qtwebengine
+
+# Debian / Ubuntu (modo escritorio)
+sudo apt install python3 python3-pyside6 python3-dbus python3-gi python3-venv qt6-webengine-dev
 ```
 
+`python-dbus` y `python-gobject` (o `python3-dbus` / `python3-gi`) son para **MPRIS** (botones del Deck). La app y el API Decky funcionan sin ellos; MPRIS quedará desactivado con un aviso.
+
 ## Instalación rápida
+
+**SteamOS / Deck (recomendado):**
 
 ```bash
 git clone https://github.com/Skyline-core/ytmusic-steamOS.git
 cd ytmusic-steamOS
-chmod +x scripts/launch.sh
+chmod +x scripts/*.sh
+./scripts/install-runtime-deps.sh   # paquetes del sistema (PySide6, aiohttp, Qt…)
+rm -rf .venv                          # si ya existía un venv roto
 ./scripts/launch.sh
 ```
 
-El script crea un `.venv`, instala dependencias y lanza la app en pantalla completa.
+**Solo con pip en venv** (si ya tienes Qt/WebEngine del sistema):
+
+```bash
+chmod +x scripts/launch.sh
+rm -rf .venv
+./scripts/launch.sh
+```
+
+**Preparar venv por SSH** (sin pantalla, sin lanzar la app):
+
+```bash
+./scripts/launch.sh --setup-only
+./scripts/build-appimage.sh   # genera el .AppImage para copiar a Bazzite/Deck
+```
+
+> **No uses `pip install` del sistema** (error `externally-managed-environment`).
+> `launch.sh` instala PySide6 y aiohttp dentro de `.venv/`.
+
+### Problemas comunes (Deepin / Debian)
+
+**`undefined symbol: QObjectPrivate, version Qt_6_PRIVATE_API`** — PySide6 de pip (6.11) choca con Qt6 del sistema (más viejo). `launch.sh` ya prioriza las libs Qt del venv. Si persiste:
+
+```bash
+git pull
+./scripts/launch.sh
+```
+
+O usa solo paquetes del sistema (sin PySide6 de pip):
+
+```bash
+sudo apt install python3-pyside6.qtwebenginewidgets python3-aiohttp python3-dbus python3-gi
+rm -rf .venv && ./scripts/launch.sh
+```
+
+### `could not connect to display` / `libxcb-cursor0`
+
+**Sin pantalla:** `launch.sh` debe ejecutarse en el **escritorio** o vía **Steam**, no desde SSH:
+
+```bash
+echo "DISPLAY=$DISPLAY WAYLAND=$WAYLAND_DISPLAY"
+```
+
+Si ambos están vacíos, abre una terminal en el escritorio del Rog Ally o añade la app a Steam.
+
+**Falta libxcb-cursor** (Qt 6.5+):
+
+```bash
+sudo apt install libxcb-cursor0 libxcb-xinerama0 libxkbcommon-x11-0
+# o
+./scripts/install-runtime-deps.sh
+```
 
 ### Añadir a Steam (Big Picture)
 
@@ -129,6 +188,22 @@ Variables opcionales:
 - `--no-api` — desactivar el servidor companion
 
 **Nota:** la cola se lee de la interfaz web de YouTube Music; para verla en Decky abre el reproductor expandido (cola lateral) al menos una vez.
+
+### Si Decky no muestra nada / «Not Connected»
+
+1. **Orden:** abre primero **ytmusic-decky** (AppImage o `launch.sh`), reproduce una canción, **luego** abre el plugin en Decky.
+2. **Auth:** en el plugin Decky → configuración → **No authorization** (token vacío). Si definiste `YTMUSIC_DECKY_API_TOKEN`, el mismo token debe estar en el plugin.
+3. **Puerto libre:** no tengas Pear/th-ch YouTube Music con API Server en **26538** a la vez.
+4. **Diagnóstico** (con la app abierta):
+
+```bash
+chmod +x scripts/diagnose-decky-api.sh
+./scripts/diagnose-decky-api.sh
+```
+
+Debe devolver JSON con `title` / `artist`. Si falla, el API no está activo (reconstruye AppImage reciente o usa `launch.sh -v`).
+
+5. En Decky: **recarga el plugin** (menú Decky → icono de recargar plugins).
 
 ## Arquitectura
 

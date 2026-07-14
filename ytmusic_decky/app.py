@@ -41,10 +41,15 @@ def _start_companion_api(
         )
         return
 
-    bus = CommandBus(dispatch_command, parent)
-    token = os.environ.get("YTMUSIC_DECKY_API_TOKEN", "").strip() or None
-    server = CompanionApiServer(state, bus, host=host, port=port, token=token)
-    server.start()
+    try:
+        bus = CommandBus(dispatch_command, parent)
+        token = os.environ.get("YTMUSIC_DECKY_API_TOKEN", "").strip() or None
+        server = CompanionApiServer(state, bus, host=host, port=port, token=token)
+        server.start()
+    except Exception:
+        logger.exception(
+            "Companion API no pudo arrancar (la app sigue sin Decky API)"
+        )
 
 
 def run(

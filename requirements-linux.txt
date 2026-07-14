@@ -1,3 +1,6 @@
 -r requirements.txt
-dbus-python>=1.3.2
-PyGObject>=3.42.0
+
+# MPRIS (D-Bus) NO va por pip: requiere headers GObject y falla en SteamOS.
+# Instala paquetes del sistema y usa venv con --system-site-packages (ver README):
+#   SteamOS/Arch:  sudo pacman -S python-dbus python-gobject
+#   Debian/Ubuntu: sudo apt install python3-dbus python3-gi

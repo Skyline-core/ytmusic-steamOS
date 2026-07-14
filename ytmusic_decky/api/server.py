@@ -24,11 +24,13 @@ API_PREFIX = "/api/v1"
 
 
 def _cors_headers() -> dict[str, str]:
+    # Decky / Chromium Private Network Access: el cliente envía
+    # Access-Control-Request-Private-Network y el servidor debe responder Allow.
     return {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
         "Access-Control-Allow-Headers": "Authorization,Content-Type",
-        "Access-Control-Request-Private-Network": "true",
+        "Access-Control-Allow-Private-Network": "true",
     }
 
 
@@ -122,20 +124,61 @@ class CompanionApiServer:
     async def _handle_options(self, request: web.Request) -> web.Response:
         return web.Response(status=204, headers=_cors_headers())
 
+    async def _emit_player_snapshot(self, *, is_playing: bool | None = None) -> None:
+        snap = self._state.snapshot()
+        playing = (
+            is_playing
+            if is_playing is not None
+            else snap["playback_status"] == "Playing"
+        )
+        await self._broadcast_async(
+            "PLAYER_STATE_CHANGED",
+            {
+                "isPlaying": playing,
+                "position": snap["position_us"] // 1_000_000,
+            },
+        )
+        meta = snap["metadata"]
+        if not (meta.title or meta.art_url or meta.video_id):
+            return
+        info_type, info_payload = self._state.build_player_info_event()
+        if is_playing is not None:
+            info_payload = {**info_payload, "isPlaying": is_playing}
+            if isinstance(info_payload.get("song"), dict):
+                info_payload["song"] = {
+                    **info_payload["song"],
+                    "isPaused": not is_playing,
+                }
+        await self._broadcast_async(info_type, info_payload)
+
     async def _handle_play(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
             return self._unauthorized()
-        return self._command("play")
+        self._state.set_playback_status("Playing", emit=False)
+        self._command_bus.post("play")
+        await self._emit_player_snapshot(is_playing=True)
+        return self._no_content()
 
     async def _handle_pause(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
             return self._unauthorized()
-        return self._command("pause")
+        self._state.set_playback_status("Paused", emit=False)
+        self._command_bus.post("pause")
+        await self._emit_player_snapshot(is_playing=False)
+        return self._no_content()
 
     async def _handle_toggle_play(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
             return self._unauthorized()
-        return self._command("playPause")
+        snap = self._state.snapshot()
+        playing = snap["playback_status"] == "Playing"
+        next_playing = not playing
+        self._state.set_playback_status(
+            "Playing" if next_playing else "Paused", emit=False
+        )
+        self._command_bus.post("playPause")
+        await self._emit_player_snapshot(is_playing=next_playing)
+        return self._no_content()
 
     async def _handle_next(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
@@ -154,7 +197,16 @@ class CompanionApiServer:
         seconds = body.get("seconds")
         if not isinstance(seconds, (int, float)):
             return self._json({"error": "seconds required"}, status=400)
-        return self._command("seekTo", {"seconds": float(seconds)})
+        seconds = max(0.0, float(seconds))
+        # Optimistic: Decky barra de progreso se actualiza al instante.
+        self._state.set_position_seconds(seconds, emit=False)
+        self._command_bus.post("seekTo", {"seconds": seconds})
+        await self._broadcast_async(
+            "POSITION_CHANGED",
+            {"position": int(seconds)},
+        )
+        await self._emit_player_snapshot()
+        return self._no_content()
 
     async def _handle_volume_post(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
@@ -163,22 +215,85 @@ class CompanionApiServer:
         volume = body.get("volume")
         if not isinstance(volume, (int, float)):
             return self._json({"error": "volume required"}, status=400)
-        return self._command("setVolume", {"volume": float(volume) / 100.0})
+        level = float(volume)
+        self._state.set_volume(level / 100.0)
+        self._command_bus.post("setVolume", {"volume": level / 100.0})
+        snap = self._state.snapshot()
+        await self._broadcast_async(
+            "VOLUME_CHANGED",
+            {"volume": round(level), "muted": snap["muted"]},
+        )
+        return self._no_content()
 
     async def _handle_toggle_mute(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
             return self._unauthorized()
-        return self._command("toggleMute")
+        snap = self._state.snapshot()
+        self._command_bus.post("toggleMute")
+        await self._broadcast_async(
+            "VOLUME_CHANGED",
+            {
+                "volume": round(snap["volume"] * 100),
+                "muted": not snap["muted"],
+            },
+        )
+        return self._no_content()
 
     async def _handle_shuffle(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
             return self._unauthorized()
-        return self._command("setShuffle")
+        # Plugin: POST /shuffle sin body (toggle). Ver apiClient.shuffle().
+        snap = self._state.snapshot()
+        next_shuffle = not snap["shuffle"]
+        self._state.set_shuffle(next_shuffle, emit=False)
+        self._command_bus.post("setShuffle", {"shuffle": next_shuffle})
+        await self._broadcast_async("SHUFFLE_CHANGED", {"shuffle": next_shuffle})
+        await self._emit_player_snapshot()
+        asyncio.create_task(self._reinforce_mode("shuffle", next_shuffle))
+        return self._no_content()
 
     async def _handle_switch_repeat(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
             return self._unauthorized()
-        return self._command("setLoop")
+        # Plugin: POST /switch-repeat { iteration } — PlayerView siempre manda 1.
+        body = await request.json() if request.can_read_body else {}
+        iteration = body.get("iteration", 1)
+        if not isinstance(iteration, int):
+            iteration = 1
+        iteration = max(1, min(5, iteration))
+        # Ciclo None → Playlist → Track → None (th-ch / Decky RepeatMode).
+        order = ["None", "Playlist", "Track"]
+        snap = self._state.snapshot()
+        try:
+            idx = order.index(snap["loop_status"])
+        except ValueError:
+            idx = 0
+        next_status = order[(idx + iteration) % len(order)]
+        self._state.set_loop_status(next_status, emit=False)
+        # Mandamos status objetivo para un solo click verificado (evitar doble avance).
+        self._command_bus.post("setLoop", {"status": next_status, "iteration": 1})
+        mapped = self._state._map_repeat(next_status)
+        await self._broadcast_async("REPEAT_CHANGED", {"repeat": mapped})
+        await self._emit_player_snapshot()
+        asyncio.create_task(self._reinforce_mode("repeat", mapped))
+        return self._no_content()
+
+    async def _reinforce_mode(self, kind: str, value: Any) -> None:
+        """Reafirma WS una vez; refresca cola tras shuffle (sin multi-clicks)."""
+        await asyncio.sleep(1.2)
+        if kind == "shuffle":
+            self._command_bus.post("refreshQueue")
+        snap = self._state.snapshot()
+        if kind == "shuffle":
+            if snap["shuffle"] != bool(value):
+                return
+            await self._broadcast_async("SHUFFLE_CHANGED", {"shuffle": bool(value)})
+        else:
+            mapped = self._state._map_repeat(snap["loop_status"])
+            if mapped != value:
+                return
+            await self._broadcast_async("REPEAT_CHANGED", {"repeat": mapped})
+        await self._emit_player_snapshot()
 
     async def _handle_song(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
@@ -193,6 +308,16 @@ class CompanionApiServer:
     async def _handle_queue_get(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
             return self._unauthorized()
+        self._command_bus.post("refreshQueue")
+        # El plugin Decky solo pide la cola una vez al abrir; esperamos a que
+        # bridge.js reporte ítems (o al menos la canción actual).
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 2.5
+        while loop.time() < deadline:
+            queue = self._state.companion_queue()
+            if queue.get("items"):
+                return self._json(queue)
+            await asyncio.sleep(0.25)
         return self._json(self._state.companion_queue())
 
     async def _handle_queue_patch(self, request: web.Request) -> web.Response:
@@ -237,8 +362,21 @@ class CompanionApiServer:
         await ws.prepare(request)
         self._ws_clients.add(ws)
 
-        event_type, payload = self._state.build_player_info_event()
-        await ws.send_str(json.dumps({"type": event_type, **payload}))
+        snap = self._state.snapshot()
+        meta = snap["metadata"]
+        if meta.title or meta.art_url or meta.video_id:
+            event_type, payload = self._state.build_player_info_event()
+            await ws.send_str(json.dumps({"type": event_type, **payload}))
+        else:
+            await ws.send_str(
+                json.dumps(
+                    {
+                        "type": "PLAYER_STATE_CHANGED",
+                        "isPlaying": snap["playback_status"] == "Playing",
+                        "position": snap["position_us"] // 1_000_000,
+                    }
+                )
+            )
 
         try:
             async for msg in ws:
@@ -294,12 +432,48 @@ class CompanionApiServer:
         app.router.add_get(f"{p}/ws", self._handle_ws)
         return app
 
+    async def _player_info_heartbeat(self) -> None:
+        """Reenvía estado periódicamente. Solo manda song si hay metadatos."""
+        while True:
+            await asyncio.sleep(2)
+            if not self._ws_clients:
+                continue
+            snap = self._state.snapshot()
+            meta = snap["metadata"]
+            if meta.title or meta.art_url or meta.video_id:
+                event_type, payload = self._state.build_player_info_event()
+                await self._broadcast_async(event_type, payload)
+            else:
+                await self._broadcast_async(
+                    "PLAYER_STATE_CHANGED",
+                    {
+                        "isPlaying": snap["playback_status"] == "Playing",
+                        "position": snap["position_us"] // 1_000_000,
+                    },
+                )
+
     async def _serve(self) -> None:
         app = self._build_app()
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self._host, self._port)
-        await site.start()
+        try:
+            await site.start()
+        except OSError as exc:
+            logger.error(
+                "No se pudo abrir el puerto %s:%s (¿otra app en 26538?): %s",
+                self._host,
+                self._port,
+                exc,
+            )
+            raise
+        logger.info(
+            "Companion API activo en http://%s:%s%s",
+            self._host,
+            self._port,
+            API_PREFIX,
+        )
+        asyncio.create_task(self._player_info_heartbeat())
         while True:
             await asyncio.sleep(3600)
 

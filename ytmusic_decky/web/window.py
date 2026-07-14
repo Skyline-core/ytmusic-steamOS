@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Slot, QEvent
@@ -28,6 +29,28 @@ logger = logging.getLogger(__name__)
 
 YTMUSIC_URL = "https://music.youtube.com/"
 _BLANK_CURSOR_CACHE: QCursor | None = None
+
+
+def _qevent_types(*names: str) -> frozenset:
+    values = []
+    for name in names:
+        value = getattr(QEvent.Type, name, None)
+        if value is not None:
+            values.append(value)
+    return frozenset(values)
+
+
+_INPUT_FREEZE_EVENTS = _qevent_types(
+    "MouseButtonPress",
+    "MouseButtonRelease",
+    "MouseButtonDblClick",
+    "TouchBegin",
+    "TouchUpdate",
+    "TouchEnd",
+    "TouchCancel",
+    "TabletPress",
+    "TabletRelease",
+)
 
 
 def get_blank_cursor() -> QCursor:
@@ -56,6 +79,15 @@ class TouchDeckWebView(QWebEngineView):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
+        self._input_freeze_until = 0.0
+
+    def freeze_input(self, ms: float = 800) -> None:
+        """Traga toques/clics sintéticos tras overlay Steam/Decky."""
+        until = time.monotonic() + max(0.05, float(ms) / 1000.0)
+        self._input_freeze_until = max(self._input_freeze_until, until)
+
+    def _input_frozen(self) -> bool:
+        return time.monotonic() < self._input_freeze_until
 
     def _apply_blank_cursor(self) -> None:
         if QApplication.instance() is None:
@@ -67,6 +99,8 @@ class TouchDeckWebView(QWebEngineView):
         QTimer.singleShot(0, self._apply_blank_cursor)
 
     def event(self, event) -> bool:
+        if self._input_frozen() and event.type() in _INPUT_FREEZE_EVENTS:
+            return True
         if _touch_ui_mode():
             et = event.type()
             if et in (
@@ -230,6 +264,41 @@ class DeckWindow(QMainWindow):
             QTimer.singleShot(0, self._view._apply_blank_cursor)
             self._cursor_timer.start()
 
+        app = QApplication.instance()
+        if app is not None:
+            app.applicationStateChanged.connect(self._on_application_state_changed)
+
+    def _on_application_state_changed(self, state) -> None:
+        # Steam / Decky overlay: al perder o recuperar foco, limar toques pegados.
+        inactive_states = [
+            Qt.ApplicationState.ApplicationInactive,
+            Qt.ApplicationState.ApplicationHidden,
+        ]
+        suspended = getattr(Qt.ApplicationState, "ApplicationSuspended", None)
+        if suspended is not None:
+            inactive_states.append(suspended)
+        inactive = state in inactive_states
+        if self._view is not None:
+            self._view.freeze_input(1200 if inactive else 900)
+        self._bridge.dispatch_command(
+            "resetTouch",
+            {"reason": "qt-inactive" if inactive else "qt-active"},
+        )
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowDeactivate:
+            if self._view is not None:
+                self._view.freeze_input(1200)
+            self._bridge.dispatch_command("resetTouch", {"reason": "qt-inactive"})
+        elif event.type() in (
+            QEvent.Type.WindowActivate,
+            QEvent.Type.ActivationChange,
+        ):
+            if self._view is not None:
+                self._view.freeze_input(900)
+            self._bridge.dispatch_command("resetTouch", {"reason": "qt-active"})
+
     def _hide_system_cursor(self) -> None:
         if not _touch_ui_mode():
             return
@@ -274,10 +343,11 @@ class DeckWindow(QMainWindow):
         page = self._view.page()
         self._inject_attempts += 1
 
+        page.runJavaScript(self._injector.webchannel_call(), self._on_webchannel_result)
         page.runJavaScript(self._injector.css_call(), self._on_css_result)
         page.runJavaScript(self._injector.bridge_call(), self._on_bridge_result)
 
-        if self._inject_attempts % 10 == 0:
+        if self._inject_attempts in (1, 2, 4, 8) or self._inject_attempts % 10 == 0:
             page.runJavaScript(self._injector.probe_call(), self._on_probe_result)
 
         if self._inject_attempts >= 8:
@@ -287,6 +357,10 @@ class DeckWindow(QMainWindow):
     def _on_css_result(self, result) -> None:
         if self._inject_attempts <= 3 or (isinstance(result, str) and result.startswith("css-error")):
             logger.info("CSS inject → %s", result)
+
+    def _on_webchannel_result(self, result) -> None:
+        if self._inject_attempts <= 4 or (isinstance(result, str) and str(result).startswith("channel-")):
+            logger.info("WebChannel inject → %s", result)
 
     def _on_bridge_result(self, result) -> None:
         if self._inject_attempts <= 3 or (isinstance(result, str) and "error" in str(result)):
@@ -344,7 +418,9 @@ class DeckWindow(QMainWindow):
             event.accept()
             return
         if key == Qt.Key.Key_Escape:
-            self._bridge.dispatch_command("back")
+            # Steam/Decky inyectan Escape al abrir menús. No disparar "back" desde Qt:
+            # el B del mando lo maneja bridge.js (gamepad buttons[1]).
+            # Solo tragamos el evento para que no lo procese YTM.
             event.accept()
             return
         super().keyPressEvent(event)

@@ -47,6 +47,19 @@ hiddenimports = [
     "ytmusic_decky.api.server",
     "ytmusic_decky.api.command_bus",
     "aiohttp",
+    "aiohttp.web",
+    "aiohttp.web_runner",
+    "aiohttp.http_parser",
+    "aiohttp.http_writer",
+    "aiohttp.helpers",
+    "aiohttp.client",
+    "aiohttp.connector",
+    "multidict",
+    "yarl",
+    "frozenlist",
+    "aiosignal",
+    "aiohappyeyeballs",
+    "propcache",
     "dbus",
     "dbus.mainloop",
     "gi",
@@ -54,7 +67,7 @@ hiddenimports = [
     "gi.repository.GLib",
 ]
 
-for pkg in ("PySide6", "shiboken6", "aiohttp"):
+for pkg in ("PySide6", "shiboken6", "aiohttp", "multidict", "yarl", "frozenlist", "aiosignal"):
     tmp_ret = collect_all(pkg)
     datas += tmp_ret[0]
     binaries += tmp_ret[1]

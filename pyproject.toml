@@ -16,10 +16,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-linux = [
-    "dbus-python>=1.3.2",
-    "PyGObject>=3.42.0",
-]
+linux = []
+
+# MPRIS usa paquetes del sistema (no pip): python-dbus / python-gobject (Arch)
+# o python3-dbus / python3-gi (Debian). Ver README.
 
 [project.scripts]
 ytmusic-steamOS = "ytmusic_decky.__main__:main"

@@ -3511,6 +3511,12 @@ html[data-ytm-deck="1"].ytm-deck-touch * {
   cursor: none !important;
 }
 
+/* Congela input breve al abrir overlay Steam/Decky (evita clic fantasma). */
+html[data-ytm-deck="1"].ytm-deck-input-freeze,
+html[data-ytm-deck="1"].ytm-deck-input-freeze * {
+  pointer-events: none !important;
+}
+
 html[data-ytm-deck="1"].ytm-deck-steam #guide-content > .deck-guide-scroll,
 html[data-ytm-deck="1"].ytm-deck-touch #guide-content > .deck-guide-scroll,
 html[data-ytm-deck="1"].ytm-deck-steam tp-yt-app-drawer#guide #contentContainer,
