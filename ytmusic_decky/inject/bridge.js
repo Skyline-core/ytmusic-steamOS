@@ -8,12 +8,12 @@ window.YTMDeck = (function () {
   const SCROLL_DRAG_THRESHOLD = 10;
   const SCROLL_AXIS_RATIO = 1.15;
   const SCROLL_DRAG_SUPPRESS_MS = 380;
-  const QUEUE_LONG_PRESS_MS = 750;
+  const QUEUE_LONG_PRESS_MS = 520;
   const QUEUE_MOVE_SLOP = 14;
-  const QUEUE_REORDER_MAX_MOVE = 6;
-  const QUEUE_VERTICAL_CANCEL = 5;
-  const QUEUE_EDGE_SCROLL_PX = 72;
-  const QUEUE_EDGE_SCROLL_STEP = 22;
+  const QUEUE_REORDER_MAX_MOVE = 18;
+  const QUEUE_EDGE_SCROLL_PX = 64;
+  const QUEUE_EDGE_SCROLL_STEP = 7;
+  const QUEUE_EDGE_SCROLL_MS = 55;
   const QUEUE_TAP_MS = 320;
   const DESIGN_W = 1280;
   const DESIGN_H = 800;
@@ -262,6 +262,200 @@ window.YTMDeck = (function () {
     );
   }
 
+  const PLAYER_TOGGLE_OPEN_MS = 380;
+  const PLAYER_TOGGLE_CLOSE_MS = 340;
+  const PLAYER_TOGGLE_ANIM_MS = PLAYER_TOGGLE_OPEN_MS;
+
+  function getPlayerToggleAnimMs(direction) {
+    return direction === "close" ? PLAYER_TOGGLE_CLOSE_MS : PLAYER_TOGGLE_OPEN_MS;
+  }
+
+  function clearPlayerToggleAnimClasses() {
+    const root = document.documentElement;
+    root.classList.remove(
+      "ytm-deck-player-animating",
+      "ytm-deck-player-opening",
+      "ytm-deck-player-closing"
+    );
+  }
+
+  function clearPlayerToggleHandoff() {
+    const root = document.documentElement;
+    root.classList.remove("ytm-deck-player-handoff", "ytm-deck-player-handoff-close");
+    clearPlayerPageMotionStyles();
+  }
+
+  function beginPlayerToggleHandoff(direction) {
+    const root = document.documentElement;
+    root.classList.add("ytm-deck-player-handoff");
+    if (direction === "close") root.classList.add("ytm-deck-player-handoff-close");
+  }
+
+  function freezePlayerPageVisual(page) {
+    if (!page) return;
+    const style = getComputedStyle(page);
+    const transform = style.transform;
+    const opacity = style.opacity;
+    if (transform && transform !== "none") {
+      page.style.setProperty("transform", transform, "important");
+      page.style.setProperty("-webkit-transform", transform, "important");
+    }
+    if (opacity && opacity !== "1") {
+      page.style.setProperty("opacity", opacity, "important");
+    }
+  }
+
+  function setPlayerToggleAnimCallback(fn) {
+    window.__YTM_DECK_PLAYER_ANIM_CALLBACK__ = typeof fn === "function" ? fn : null;
+  }
+
+  function finishPlayerToggleAnim() {
+    if (!isPlayerToggleAnimating()) return;
+
+    const direction = window.__YTM_DECK_PLAYER_ANIM_DIRECTION__ || "open";
+    const onEnd = window.__YTM_DECK_PLAYER_ANIM_CALLBACK__;
+    window.__YTM_DECK_PLAYER_ANIM_CALLBACK__ = null;
+    window.__YTM_DECK_PLAYER_ANIM_DIRECTION__ = null;
+    window.__YTM_DECK_PLAYER_ANIM_STARTED__ = 0;
+
+    try {
+      clearTimeout(window.__YTM_DECK_PLAYER_ANIM_TIMER__);
+    } catch (_) {}
+
+    const page = qs("ytmusic-player-page, #player-page");
+    freezePlayerPageVisual(page);
+    beginPlayerToggleHandoff(direction);
+    clearPlayerToggleAnimClasses();
+
+    if (direction === "close") {
+      if (typeof onEnd === "function") onEnd();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => clearPlayerToggleHandoff());
+      });
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        clearPlayerToggleHandoff();
+        requestAnimationFrame(() => {
+          if (typeof onEnd === "function") onEnd();
+        });
+      });
+    });
+  }
+
+  function bindPlayerToggleAnimEnd(direction) {
+    const page = qs("ytmusic-player-page, #player-page");
+    const fallbackMs = getPlayerToggleAnimMs(direction) + 120;
+
+    if (!page) {
+      window.__YTM_DECK_PLAYER_ANIM_TIMER__ = setTimeout(finishPlayerToggleAnim, fallbackMs);
+      return;
+    }
+
+    let done = false;
+    const complete = () => {
+      if (done) return;
+      done = true;
+      page.removeEventListener("animationend", onEnd);
+      page.removeEventListener("webkitAnimationEnd", onEnd);
+      finishPlayerToggleAnim();
+    };
+
+    const onEnd = (event) => {
+      if (event.target !== page) return;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => complete());
+      });
+    };
+
+    page.addEventListener("animationend", onEnd);
+    page.addEventListener("webkitAnimationEnd", onEnd);
+    try {
+      clearTimeout(window.__YTM_DECK_PLAYER_ANIM_TIMER__);
+    } catch (_) {}
+    window.__YTM_DECK_PLAYER_ANIM_TIMER__ = setTimeout(complete, fallbackMs);
+  }
+
+  function beginPlayerToggleAnim(direction) {
+    const root = document.documentElement;
+    const opening = direction !== "close";
+    const animClass = opening ? "ytm-deck-player-opening" : "ytm-deck-player-closing";
+    if (root.classList.contains("ytm-deck-player-animating") && root.classList.contains(animClass)) {
+      return;
+    }
+
+    clearPlayerToggleAnimClasses();
+    root.classList.add("ytm-deck-player-animating");
+    root.classList.add(animClass);
+    window.__YTM_DECK_PLAYER_ANIM_STARTED__ = performance.now();
+    window.__YTM_DECK_PLAYER_ANIM_DIRECTION__ = direction;
+    bindPlayerToggleAnimEnd(direction);
+  }
+
+  function getPlayerAnimRemainingMs() {
+    const started = window.__YTM_DECK_PLAYER_ANIM_STARTED__ || 0;
+    const direction = window.__YTM_DECK_PLAYER_ANIM_DIRECTION__ || "open";
+    if (!started) return getPlayerToggleAnimMs(direction);
+    return Math.max(0, getPlayerToggleAnimMs(direction) + 40 - (performance.now() - started));
+  }
+
+  function isPlayerToggleAnimating() {
+    const root = document.documentElement;
+    return (
+      root.classList.contains("ytm-deck-player-animating") ||
+      root.classList.contains("ytm-deck-player-handoff")
+    );
+  }
+
+  function clearPlayerPageMotionStyles() {
+    const page = qs("ytmusic-player-page, #player-page");
+    if (!page) return;
+    if (isPlayerToggleAnimating()) return;
+    page.style.removeProperty("transform");
+    page.style.removeProperty("-webkit-transform");
+    page.style.removeProperty("opacity");
+    page.style.removeProperty("will-change");
+  }
+
+  function schedulePlayingCloseAfterAnim() {
+    setPlayerToggleAnimCallback(() => {
+      exitPlayingViewForced();
+      ensureSidebarExpanded();
+      ensureGuideScrollLayout();
+    });
+  }
+
+  function schedulePlayingViewSync(delay) {
+    if (isPlayerToggleAnimating()) {
+      setPlayerToggleAnimCallback(() => syncPlayingViewAfterAnim());
+      return;
+    }
+    const ms = Number.isFinite(delay) ? delay : PLAYER_TOGGLE_OPEN_MS;
+    try {
+      clearTimeout(window.__YTM_DECK_PLAYING_SYNC_TIMER__);
+    } catch (_) {}
+    window.__YTM_DECK_PLAYING_SYNC_TIMER__ = setTimeout(syncPlayingView, ms);
+  }
+
+  function syncPlayingViewAfterAnim() {
+    if (isPlayerPageOpen()) {
+      setPlayingMode(true);
+      fixPlayerPageLayout();
+      if (!qs(".deck-hero-wrap")) buildHeroUi();
+      if (!qs("#side-panel")) {
+        mountSidePanel();
+        ensureQueueTab();
+      }
+    } else {
+      sideTabUserPicked = false;
+      setPlayingMode(false);
+      removeHeroUi();
+    }
+    updateDeckUi();
+  }
+
   function markPlayerToggleProgrammatic(ms) {
     window.__YTM_DECK_IGNORE_PLAYER_TOGGLE__ = performance.now() + (ms || 900);
   }
@@ -307,18 +501,21 @@ window.YTMDeck = (function () {
   }
 
   function openPlayerPage() {
-    markPlayerToggleProgrammatic(1000);
+    markPlayerToggleProgrammatic(1200);
     window.__YTM_DECK_PLAYER_CLOSED_UNTIL__ = 0;
     window.__YTM_DECK_SKIP_WATCH_HISTORY__ = false;
+    clearPlayerPageMotionStyles();
+
+    enterPlayingViewForced();
+    beginPlayerToggleAnim("open");
 
     if (isPlayerPageOpen()) {
-      syncPlayingView();
+      schedulePlayingViewSync(PLAYER_TOGGLE_ANIM_MS);
       return true;
     }
 
     const bar = qs("ytmusic-player-bar");
     const btn = getPlayerPageToggleButton(bar);
-    // Un solo click: pointer+click duplicado reabre/minimiza en bucle.
     if (btn) {
       try {
         btn.click();
@@ -327,14 +524,14 @@ window.YTMDeck = (function () {
       }
     }
 
-    setTimeout(syncPlayingView, 250);
-    setTimeout(syncPlayingView, 700);
+    schedulePlayingViewSync(PLAYER_TOGGLE_ANIM_MS);
     return true;
   }
 
   function closePlayerPage() {
-    markPlayerToggleProgrammatic(1000);
+    markPlayerToggleProgrammatic(1200);
     window.__YTM_DECK_PLAYER_CLOSED_UNTIL__ = performance.now() + 6000;
+    clearPlayerPageMotionStyles();
 
     const pageOpen = isPlayerPageOpen();
     const bar = qs("ytmusic-player-bar");
@@ -343,9 +540,10 @@ window.YTMDeck = (function () {
     const deckPlaying = document.documentElement.classList.contains("ytm-deck-playing");
     if (!pageOpen && !deckPlaying && !polyOpen) return false;
 
-    // Si cerramos desde /watch, YTM empuja browse encima del watch.
-    // El próximo B debe saltar esa entrada watch (go(-2)), no history.back().
     const closingFromWatch = /\/watch/.test(location.pathname || "");
+
+    if (!deckPlaying) enterPlayingViewForced();
+    beginPlayerToggleAnim("close");
 
     if (pageOpen || polyOpen) {
       let closed = false;
@@ -379,12 +577,7 @@ window.YTMDeck = (function () {
       }, 15000);
     }
 
-    exitPlayingViewForced();
-    setTimeout(syncPlayingView, 350);
-    setTimeout(() => {
-      ensureSidebarExpanded();
-      ensureGuideScrollLayout();
-    }, 400);
+    schedulePlayingCloseAfterAnim();
     return true;
   }
 
@@ -2160,35 +2353,143 @@ window.YTMDeck = (function () {
     return "";
   }
 
-  function queueElements() {
-    const selectors = [
-      "#side-panel ytmusic-player-queue-item",
-      "#side-panel ytmusic-queue-item",
-      "#side-panel ytmusic-playlist-panel-video-renderer",
-      "ytmusic-player-page ytmusic-player-queue-item",
-      "ytmusic-player-page ytmusic-queue-item",
-      "ytmusic-player-page ytmusic-playlist-panel-video-renderer",
-      "ytmusic-tabbed-queue ytmusic-player-queue-item",
-      "ytmusic-tabbed-queue ytmusic-queue-item",
-      "ytmusic-tabbed-queue ytmusic-playlist-panel-video-renderer",
-      "ytmusic-player-queue-item",
-      "ytmusic-queue-item",
-      "ytmusic-playlist-panel-video-renderer",
+  function getYtmQueueHost() {
+    const candidates = [
+      ...qsa("#side-panel #queue"),
+      ...qsa("ytmusic-player-page #queue"),
+      ...qsa("ytmusic-tabbed-queue #queue"),
+      ...qsa("#queue"),
     ];
+    const uniq = [];
     const seen = new Set();
-    const items = [];
-    for (const sel of selectors) {
-      for (const el of qsa(sel)) {
-        if (!seen.has(el)) {
-          seen.add(el);
-          items.push(el);
-        }
+    for (const el of candidates) {
+      if (!el || seen.has(el)) continue;
+      seen.add(el);
+      uniq.push(el);
+    }
+    for (const el of uniq) {
+      try {
+        if (typeof el.dispatch === "function" && el.queue?.store?.store) return el;
+      } catch (_) {
+        /* noop */
       }
     }
+    for (const el of uniq) {
+      if (typeof el.dispatch === "function") return el;
+    }
+    return null;
+  }
+
+  function getYtmQueueState() {
+    const host = getYtmQueueHost();
+    try {
+      return host?.queue?.store?.store?.getState?.()?.queue || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function readYtText(field) {
+    if (!field) return "";
+    if (typeof field === "string") return field.trim();
+    if (typeof field.simpleText === "string") return field.simpleText.trim();
+    const runs = field.runs;
+    if (Array.isArray(runs) && runs.length) {
+      return runs
+        .map((r) => (typeof r?.text === "string" ? r.text : ""))
+        .join("")
+        .trim();
+    }
+    return "";
+  }
+
+  function unwrapStoreQueueRenderer(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    if (raw.playlistPanelVideoRenderer) return raw.playlistPanelVideoRenderer;
+    const wrap = raw.playlistPanelVideoWrapperRenderer;
+    if (!wrap) return null;
+    const primary = wrap.primaryRenderer;
+    if (!primary || typeof primary !== "object") return null;
+    if (primary.playlistPanelVideoRenderer) return primary.playlistPanelVideoRenderer;
+    const key = Object.keys(primary)[0];
+    return key ? primary[key] : null;
+  }
+
+  function normalizeQueueItemPayload(renderer, playingId) {
+    if (!renderer || typeof renderer !== "object") return null;
+    const title = readYtText(renderer.title);
+    if (!title) return null;
+    const videoId = String(renderer.videoId || "");
+    const artist = readYtText(renderer.shortBylineText);
+    const thumbs = renderer.thumbnail?.thumbnails;
+    const thumbList = Array.isArray(thumbs)
+      ? thumbs
+          .map((t) => {
+            const url = t?.url || t?.src || "";
+            return url ? { url: String(url) } : null;
+          })
+          .filter(Boolean)
+      : [];
+    const selected = playingId && videoId ? videoId === playingId : !!renderer.selected;
+    const out = {
+      playlistPanelVideoRenderer: {
+        title: { runs: [{ text: title }] },
+        shortBylineText: { runs: [{ text: artist }] },
+        thumbnail: { thumbnails: thumbList },
+        videoId,
+        selected,
+      },
+    };
+    const length = readYtText(renderer.lengthText);
+    if (length) out.playlistPanelVideoRenderer.lengthText = { runs: [{ text: length }] };
+    return out;
+  }
+
+  function isCounterpartQueueItem(el) {
+    if (!el) return false;
+    return !!el.closest?.(
+      "#counterpart-renderer, [id='counterpart-renderer'], .counterpart-renderer"
+    );
+  }
+
+  function queueElements() {
+    const hosts = [
+      getYtmQueueHost(),
+      qs("#side-panel #queue"),
+      qs("ytmusic-player-page #queue"),
+      qs("#side-panel"),
+    ].filter(Boolean);
+
+    const seen = new Set();
+    const items = [];
+
+    const push = (el) => {
+      if (!el || seen.has(el) || isCounterpartQueueItem(el)) return;
+      seen.add(el);
+      items.push(el);
+    };
+
+    const primarySel =
+      "#contents > ytmusic-player-queue-item, " +
+      "#contents > ytmusic-playlist-panel-video-wrapper-renderer > #primary-renderer > ytmusic-player-queue-item, " +
+      "#contents > ytmusic-playlist-panel-video-wrapper-renderer > #primary-renderer > ytmusic-playlist-panel-video-renderer";
+
+    for (const host of hosts) {
+      for (const el of qsa(primarySel, host)) push(el);
+      if (items.length) break;
+    }
+
+    if (!items.length) {
+      const fallbackSel =
+        "#side-panel ytmusic-player-queue-item, #side-panel ytmusic-playlist-panel-video-renderer, " +
+        "ytmusic-player-page ytmusic-player-queue-item";
+      for (const el of qsa(fallbackSel)) push(el);
+    }
+
     return items;
   }
 
-  function readQueueItemData(item) {
+  function readQueueItemData(item, playingId) {
     const roots = [];
     if (item?.shadowRoot) roots.push(item.shadowRoot);
     if (item) roots.push(item);
@@ -2242,18 +2543,21 @@ window.YTMDeck = (function () {
       thumbUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
     }
 
-    const selected =
-      item.hasAttribute("selected") ||
-      item.classList.contains("playing") ||
-      item.getAttribute("aria-selected") === "true";
-    const duration = readText(".duration, .badge-style-type, .length", item) || "";
+    const currentId = playingId || readVideoId();
+    let selected = false;
+    if (currentId && videoId) {
+      selected = videoId === currentId;
+    } else {
+      selected =
+        item.hasAttribute("selected") ||
+        item.classList.contains("playing") ||
+        item.getAttribute("aria-selected") === "true";
+    }
 
-    // Si es la pista actual y el DOM aún no hidrató thumb, usa carátula del player.
     if (selected && !thumbUrl) {
       thumbUrl = readArtUrl() || "";
     }
     if (selected && !videoId) {
-      // Evitar recursión infinita: preferir fuentes locales.
       try {
         const player =
           document.getElementById("movie_player") || qs(".html5-video-player");
@@ -2269,9 +2573,100 @@ window.YTMDeck = (function () {
         thumbnail: { thumbnails: thumbUrl ? [{ url: thumbUrl }] : [] },
         videoId: videoId || "",
         selected,
-        lengthText: duration ? { runs: [{ text: duration }] } : undefined,
+        lengthText: durationTextFromQueueItem(item),
       },
     };
+  }
+
+  function durationTextFromQueueItem(item) {
+    const duration = readText(".duration, .badge-style-type, .length", item) || "";
+    return duration ? { runs: [{ text: duration }] } : undefined;
+  }
+
+  function normalizeQueueSelected(items, playingId) {
+    if (!items?.length) return items;
+    let matched = false;
+    if (playingId) {
+      for (const item of items) {
+        const r = item?.playlistPanelVideoRenderer;
+        if (!r) continue;
+        const sel = !!(r.videoId && r.videoId === playingId);
+        r.selected = sel;
+        if (sel) matched = true;
+      }
+    }
+    if (!matched) {
+      let kept = false;
+      for (const item of items) {
+        const r = item?.playlistPanelVideoRenderer;
+        if (!r) continue;
+        if (r.selected) {
+          if (kept) r.selected = false;
+          else kept = true;
+        }
+      }
+    }
+    return items;
+  }
+
+  function collectQueueFromStore(playingId) {
+    const state = getYtmQueueState();
+    const rawItems = state?.items;
+    if (!Array.isArray(rawItems) || !rawItems.length) return null;
+
+    const items = [];
+    const seen = new Set();
+    for (const raw of rawItems) {
+      const r = unwrapStoreQueueRenderer(raw);
+      const payload = normalizeQueueItemPayload(r, playingId);
+      if (!payload) continue;
+      const videoId = payload.playlistPanelVideoRenderer.videoId || "";
+      if (videoId) {
+        if (seen.has(videoId)) continue;
+        seen.add(videoId);
+      }
+      items.push(payload);
+    }
+    if (!items.length) return null;
+    return { items: normalizeQueueSelected(items, playingId) };
+  }
+
+  function collectQueueFromDom(playingId) {
+    const seen = new Set();
+    const items = [];
+    for (const el of queueElements()) {
+      const data = readQueueItemData(el, playingId);
+      const r = data.playlistPanelVideoRenderer;
+      const title = r?.title?.runs?.[0]?.text || "";
+      if (!String(title).trim()) continue;
+      const videoId = r.videoId || "";
+      const key = videoId || `t:${title}:${r.shortBylineText?.runs?.[0]?.text || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(data);
+    }
+    return items;
+  }
+
+  function collectQueue() {
+    const playingId = readVideoId();
+    const fromStore = collectQueueFromStore(playingId);
+    const fromDom = normalizeQueueSelected(collectQueueFromDom(playingId), playingId);
+
+    // Preferir la fuente con más pistas válidas (store vacío o títulos raros → DOM).
+    let items = [];
+    if ((fromStore?.items?.length || 0) >= (fromDom?.length || 0) && fromStore?.items?.length) {
+      items = fromStore.items;
+    } else if (fromDom.length) {
+      items = fromDom;
+    } else if (fromStore?.items?.length) {
+      items = fromStore.items;
+    }
+
+    if (items.length > 0) return { items };
+
+    const current = buildCurrentTrackQueueItem();
+    return { items: current ? [current] : [] };
   }
 
   function buildCurrentTrackQueueItem() {
@@ -2289,23 +2684,126 @@ window.YTMDeck = (function () {
     };
   }
 
-  function collectQueue() {
-    const items = queueElements()
-      .map(readQueueItemData)
-      .filter((item) => item.playlistPanelVideoRenderer?.title?.runs?.[0]?.text);
-    if (items.length > 0) return { items };
-    const current = buildCurrentTrackQueueItem();
-    return { items: current ? [current] : [] };
+  function queueItemIdsSnapshot() {
+    const fromStore = getYtmQueueState()?.items;
+    if (Array.isArray(fromStore) && fromStore.length) {
+      return fromStore
+        .map((raw) => unwrapStoreQueueRenderer(raw)?.videoId || "")
+        .filter(Boolean)
+        .join("|");
+    }
+    return queueElements()
+      .map((el) => {
+        const data = readQueueItemData(el, "");
+        return data.playlistPanelVideoRenderer?.videoId || "";
+      })
+      .filter(Boolean)
+      .join("|");
+  }
+
+  function getYtmQueueController() {
+    return getYtmQueueHost();
+  }
+
+  function findQueueDropIndex(clientY, draggedItem) {
+    const items = queueElements();
+    if (!items.length) return -1;
+    const from = items.indexOf(draggedItem);
+    if (from < 0) return -1;
+
+    const others = items.filter((el) => el !== draggedItem);
+    for (let i = 0; i < others.length; i++) {
+      const rect = others[i].getBoundingClientRect();
+      if (rect.height < 8) continue;
+      if (clientY < rect.top + rect.height * 0.5) return i;
+    }
+    return others.length;
+  }
+
+  function moveQueueItem(fromIndex, toIndex) {
+    if (!Number.isFinite(fromIndex) || !Number.isFinite(toIndex)) return false;
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return false;
+
+    const storeCount = getYtmQueueState()?.items?.length;
+    const domCount = queueElements().length;
+    const count = Number.isFinite(storeCount) && storeCount > 0 ? storeCount : domCount;
+    if (fromIndex >= count) return false;
+    if (toIndex > count - 1) return false;
+
+    const before = queueItemIdsSnapshot();
+    const host = getYtmQueueHost();
+    const action = {
+      type: "MOVE_ITEM",
+      payload: { fromIndex, toIndex },
+    };
+
+    let dispatched = false;
+    if (host && typeof host.dispatch === "function") {
+      try {
+        host.dispatch(action);
+        dispatched = true;
+      } catch (_) {
+        /* try store */
+      }
+    }
+
+    if (!dispatched) {
+      try {
+        const store = host?.queue?.store?.store;
+        if (store && typeof store.dispatch === "function") {
+          store.dispatch(action);
+          dispatched = true;
+        }
+      } catch (_) {
+        /* noop */
+      }
+    }
+
+    // Comprobar si el store cambió; si no, no fingir éxito con DOM.
+    const after = queueItemIdsSnapshot();
+    if (dispatched && before && after && before !== after) return true;
+    if (dispatched && (!before || before === after)) {
+      // Algunos builds mutan in-place; re-leer índices por longitud.
+      try {
+        const items = getYtmQueueState()?.items;
+        if (Array.isArray(items) && items.length === count) {
+          // Asumir OK si dispatch no lanzó; Decky se actualizará en report.
+          return true;
+        }
+      } catch (_) {
+        /* noop */
+      }
+    }
+
+    // Fallback DOM solo si no hubo controlador; YTM suele regenerar y no persiste.
+    if (dispatched) return true;
+
+    const items = queueElements();
+    const item = items[fromIndex];
+    if (!item || !item.parentNode) return false;
+    try {
+      const without = items.filter((el) => el !== item);
+      const target = without[toIndex] || null;
+      if (target) item.parentNode.insertBefore(item, target);
+      else if (without.length) {
+        const last = without[without.length - 1];
+        last.parentNode.insertBefore(item, last.nextSibling);
+      } else return false;
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   function primeQueueForApi() {
-    if (queueElements().length > 0) {
-      reportState();
+    // Siempre reportar lo que haya (store o DOM); Decky hace GET /queue al abrir.
+    reportState();
+    if (queueElements().length > 0 || (getYtmQueueState()?.items || []).length > 0) {
+      [300, 900].forEach((ms) => setTimeout(() => reportState(), ms));
       return;
     }
     if (!readSongTitle()) return;
 
-    // No reabrir la vista de reproducción si el usuario acaba de minimizar con B.
     if (
       !isPlayerPageOpen() &&
       performance.now() >= (window.__YTM_DECK_PLAYER_CLOSED_UNTIL__ || 0)
@@ -2361,6 +2859,75 @@ window.YTMDeck = (function () {
       if (!queueRemoveAt(i)) return false;
     }
     return true;
+  }
+
+  function startQueueDragFloat(item, clientX, clientY) {
+    if (!item) return null;
+    const rect = item.getBoundingClientRect();
+    const floatEl = item.cloneNode(true);
+    floatEl.classList.add("deck-queue-drag-float");
+    floatEl.setAttribute("aria-hidden", "true");
+    floatEl.style.cssText = [
+      "position:fixed",
+      `left:${Math.round(rect.left)}px`,
+      `top:${Math.round(rect.top)}px`,
+      `width:${Math.round(rect.width)}px`,
+      `height:${Math.round(rect.height)}px`,
+      "margin:0",
+      "z-index:10000",
+      "pointer-events:none",
+      "opacity:0.96",
+      "box-shadow:0 14px 32px rgba(0,0,0,0.5)",
+      "border-radius:14px",
+      "overflow:hidden",
+      "transform:scale(1.02)",
+      "transition:none",
+    ].join(";");
+    document.documentElement.appendChild(floatEl);
+
+    item.classList.add("deck-queue-drag-placeholder");
+    item.dataset.deckReorderOk = "1";
+    item.style.setProperty("opacity", "0.28", "important");
+
+    return {
+      floatEl,
+      offsetX: clientX - rect.left,
+      offsetY: clientY - rect.top,
+    };
+  }
+
+  function updateQueueDragFloat(drag, clientX, clientY) {
+    if (!drag?.floatEl) return;
+    drag.floatEl.style.left = `${Math.round(clientX - drag.offsetX)}px`;
+    drag.floatEl.style.top = `${Math.round(clientY - drag.offsetY)}px`;
+  }
+
+  function clearQueueDragFloat(item, drag) {
+    if (drag?.floatEl) {
+      try {
+        drag.floatEl.remove();
+      } catch (_) {
+        /* noop */
+      }
+    }
+    if (!item) return;
+    item.classList.remove("deck-queue-drag-placeholder", "deck-queue-dragging");
+    delete item.dataset.deckReorderOk;
+    item.style.removeProperty("opacity");
+    item.style.removeProperty("transform");
+    item.style.removeProperty("z-index");
+    item.style.removeProperty("pointer-events");
+    item.style.removeProperty("transition");
+  }
+
+  function reportQueueAfterReorder() {
+    // Esperar un frame a que YTM mutue el store, luego empujar a Decky.
+    requestAnimationFrame(() => {
+      reportState();
+      [150, 400, 900, 1600].forEach((ms) => {
+        setTimeout(() => reportState(), ms);
+      });
+    });
   }
 
   function collectState() {
@@ -4153,15 +4720,24 @@ window.YTMDeck = (function () {
 
     const clearGesture = () => {
       if (!gesture) return;
+      if (gesture.holdTimer) {
+        clearTimeout(gesture.holdTimer);
+        gesture.holdTimer = null;
+      }
       if (gesture.edgeTimer) {
         clearInterval(gesture.edgeTimer);
         gesture.edgeTimer = null;
       }
-      if (gesture.item) delete gesture.item.dataset.deckReorderOk;
+      clearQueueDragFloat(gesture.item, gesture.drag);
       gesture.reorderCandidate = null;
       if (gesture.mode === MODE.REORDER) setQueueReordering(false);
       try {
         gesture.scroller?.releasePointerCapture?.(gesture.id);
+      } catch (_) {
+        /* noop */
+      }
+      try {
+        gesture.item?.releasePointerCapture?.(gesture.id);
       } catch (_) {
         /* noop */
       }
@@ -4192,10 +4768,58 @@ window.YTMDeck = (function () {
           return;
         }
         const scroller = gesture.scroller;
+        const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
         const next = scroller.scrollTop + direction * QUEUE_EDGE_SCROLL_STEP;
-        scroller.scrollTop = Math.max(0, Math.min(scroller.scrollHeight - scroller.clientHeight, next));
+        scroller.scrollTop = Math.max(0, Math.min(max, next));
         gesture.lockTop = scroller.scrollTop;
-      }, 28);
+        // Solo scroll: no reordenar aquí (el dedo está en el borde).
+      }, QUEUE_EDGE_SCROLL_MS);
+    };
+
+    const enterReorderMode = () => {
+      if (!gesture) return;
+      const item = gesture.item || gesture.reorderCandidate;
+      if (!item) return;
+      if (gesture.holdTimer) {
+        clearTimeout(gesture.holdTimer);
+        gesture.holdTimer = null;
+      }
+      const px = gesture.pointerX ?? gesture.x;
+      const py = gesture.pointerY ?? gesture.y;
+      gesture.mode = MODE.REORDER;
+      gesture.item = item;
+      gesture.reorderCandidate = null;
+      gesture.fromIndex = queueElements().indexOf(item);
+      gesture.lockTop = gesture.scroller?.scrollTop ?? 0;
+      gesture.moved = false;
+      gesture.drag = startQueueDragFloat(item, px, py);
+      setQueueReordering(true);
+      document.documentElement.classList.add("ytm-deck-dragging");
+      clearSelection();
+      try {
+        item.setPointerCapture?.(gesture.id);
+      } catch (_) {
+        /* noop */
+      }
+      try {
+        navigator.vibrate?.(12);
+      } catch (_) {
+        /* noop */
+      }
+    };
+
+    const commitQueueReorder = (clientY) => {
+      if (!gesture?.item) return false;
+      const fromIndex =
+        Number.isFinite(gesture.fromIndex) && gesture.fromIndex >= 0
+          ? gesture.fromIndex
+          : queueElements().indexOf(gesture.item);
+      if (fromIndex < 0) return false;
+      const dropIndex = findQueueDropIndex(clientY, gesture.item);
+      if (dropIndex < 0 || dropIndex === fromIndex) return false;
+      const moved = moveQueueItem(fromIndex, dropIndex);
+      if (moved) gesture.moved = true;
+      return moved;
     };
 
     const resolveVerticalScroller = (target) => {
@@ -4230,14 +4854,18 @@ window.YTMDeck = (function () {
           "#sections",
           "tp-yt-app-drawer#guide",
         ]);
-      if (guideHit) {
-        if (target.closest?.(".deck-guide-account-bar, #button-bar, #right-content, #avatar-btn, ytmusic-cast-button, ytmusic-settings-button")) {
-          return null;
+        if (guideHit) {
+          if (
+            target.closest?.(
+              ".deck-guide-account-bar, #button-bar, #right-content, #avatar-btn, ytmusic-cast-button, ytmusic-settings-button"
+            )
+          ) {
+            return null;
+          }
+          ensureGuideScrollLayout();
+          const scroller = getGuideScroller();
+          if (scroller) return { scroller, item: null };
         }
-        ensureGuideScrollLayout();
-        const scroller = getGuideScroller();
-        if (scroller) return { scroller, item: null };
-      }
       }
 
       const browse = findDeckHost(target, [
@@ -4285,6 +4913,8 @@ window.YTMDeck = (function () {
             id: event.pointerId,
             x: event.clientX,
             y: event.clientY,
+            pointerX: event.clientX,
+            pointerY: event.clientY,
             t: performance.now(),
             mode: MODE.PENDING,
             kind: "ambivalent",
@@ -4295,6 +4925,8 @@ window.YTMDeck = (function () {
             item: null,
             edgeTimer: null,
             edgeDir: 0,
+            holdTimer: null,
+            drag: null,
           };
           return;
         }
@@ -4309,6 +4941,8 @@ window.YTMDeck = (function () {
           id: event.pointerId,
           x: event.clientX,
           y: event.clientY,
+          pointerX: event.clientX,
+          pointerY: event.clientY,
           t: performance.now(),
           mode: MODE.PENDING,
           kind: "vertical",
@@ -4320,7 +4954,19 @@ window.YTMDeck = (function () {
           thumbItem: getQueueItemFromThumbnail(event.target, event.clientX, event.clientY),
           edgeTimer: null,
           edgeDir: 0,
+          holdTimer: null,
+          moved: false,
+          drag: null,
+          fromIndex: -1,
         };
+
+        if (gesture.reorderCandidate) {
+          gesture.holdTimer = setTimeout(() => {
+            if (!gesture || gesture.mode !== MODE.PENDING || !gesture.reorderCandidate) return;
+            if (gesture.id !== event.pointerId) return;
+            enterReorderMode();
+          }, QUEUE_LONG_PRESS_MS);
+        }
       },
       true
     );
@@ -4333,7 +4979,8 @@ window.YTMDeck = (function () {
         const dx = event.clientX - gesture.x;
         const dy = event.clientY - gesture.y;
         const dist = Math.hypot(dx, dy);
-        const elapsed = performance.now() - gesture.t;
+        gesture.pointerX = event.clientX;
+        gesture.pointerY = event.clientY;
 
         if (gesture.mode === MODE.PENDING) {
           if (gesture.kind === "ambivalent") {
@@ -4362,10 +5009,11 @@ window.YTMDeck = (function () {
               /* noop */
             }
           } else if (gesture.reorderCandidate) {
-            const verticalIntent =
-              Math.abs(dy) >= QUEUE_VERTICAL_CANCEL ||
-              (dist >= SCROLL_DRAG_THRESHOLD && preferVerticalAxis(dx, dy));
-            if (verticalIntent || dist > QUEUE_MOVE_SLOP) {
+            if (dist > QUEUE_REORDER_MAX_MOVE && preferVerticalAxis(dx, dy)) {
+              if (gesture.holdTimer) {
+                clearTimeout(gesture.holdTimer);
+                gesture.holdTimer = null;
+              }
               gesture.mode = MODE.V_SCROLL;
               gesture.reorderCandidate = null;
               document.documentElement.classList.add("ytm-deck-dragging");
@@ -4375,14 +5023,6 @@ window.YTMDeck = (function () {
               } catch (_) {
                 /* noop */
               }
-            } else if (elapsed >= QUEUE_LONG_PRESS_MS && dist <= QUEUE_REORDER_MAX_MOVE) {
-              gesture.mode = MODE.REORDER;
-              gesture.item = gesture.reorderCandidate;
-              gesture.reorderCandidate = null;
-              gesture.item.dataset.deckReorderOk = "1";
-              gesture.lockTop = gesture.scroller.scrollTop;
-              setQueueReordering(true);
-              return;
             } else {
               return;
             }
@@ -4418,29 +5058,26 @@ window.YTMDeck = (function () {
         }
 
         if (gesture.mode === MODE.REORDER) {
+          event.preventDefault();
           const scroller = gesture.scroller;
           const rect = scroller.getBoundingClientRect();
           const y = event.clientY;
           const nearTop = y <= rect.top + QUEUE_EDGE_SCROLL_PX;
           const nearBottom = y >= rect.bottom - QUEUE_EDGE_SCROLL_PX;
 
+          updateQueueDragFloat(gesture.drag, event.clientX, y);
+
           if (nearTop) {
             startEdgeScroll(-1);
-            scroller.scrollTop = Math.max(0, scroller.scrollTop - QUEUE_EDGE_SCROLL_STEP);
-            gesture.lockTop = scroller.scrollTop;
           } else if (nearBottom) {
             startEdgeScroll(1);
-            scroller.scrollTop = Math.min(
-              scroller.scrollHeight - scroller.clientHeight,
-              scroller.scrollTop + QUEUE_EDGE_SCROLL_STEP
-            );
-            gesture.lockTop = scroller.scrollTop;
           } else {
             stopEdgeScroll();
             if (gesture.lockTop != null && Math.abs(scroller.scrollTop - gesture.lockTop) > 0.5) {
               scroller.scrollTop = gesture.lockTop;
             }
           }
+          return;
         }
       },
       { capture: true, passive: false }
@@ -4450,6 +5087,21 @@ window.YTMDeck = (function () {
       if (!gesture || event.pointerId !== gesture.id) return;
       const g = gesture;
       const wasScroll = g.mode === MODE.H_SCROLL || g.mode === MODE.V_SCROLL;
+      const wasReorder = g.mode === MODE.REORDER;
+      const dropY = Number.isFinite(event.clientY) ? event.clientY : g.pointerY;
+      let didMove = false;
+
+      if (wasReorder) {
+        stopEdgeScroll();
+        didMove = commitQueueReorder(dropY);
+        clearGesture();
+        event.preventDefault();
+        event.stopPropagation();
+        suppressClickUntil = performance.now() + SCROLL_DRAG_SUPPRESS_MS;
+        if (didMove) reportQueueAfterReorder();
+        return;
+      }
+
       clearGesture();
 
       if (wasScroll) {
@@ -4804,12 +5456,22 @@ window.YTMDeck = (function () {
 
     trimHeroUi();
 
-    const queueItems = qsa("ytmusic-queue-item, ytmusic-playlist-panel-video-renderer");
+    const queueItems = queueElements();
     const subtitle = qs(".deck-queue-subtitle");
     if (subtitle && queueItems.length) {
-      const playingIndex = queueItems.findIndex(
-        (item) => item.hasAttribute("selected") || item.classList.contains("playing")
-      );
+      const playingId = readVideoId();
+      let playingIndex = -1;
+      if (playingId) {
+        playingIndex = queueItems.findIndex((item) => {
+          const data = readQueueItemData(item, playingId);
+          return data.playlistPanelVideoRenderer?.videoId === playingId;
+        });
+      }
+      if (playingIndex < 0) {
+        playingIndex = queueItems.findIndex(
+          (item) => item.hasAttribute("selected") || item.classList.contains("playing")
+        );
+      }
       const idx = playingIndex >= 0 ? playingIndex + 1 : 1;
       subtitle.textContent = `Reproduciendo · ${idx} de ${queueItems.length}`;
     }
@@ -4866,8 +5528,11 @@ window.YTMDeck = (function () {
     if (!page) return;
     page.style.marginLeft = "0";
     page.style.paddingLeft = "0";
-    page.style.transform = "none";
-    page.style.webkitTransform = "none";
+    if (!document.documentElement.classList.contains("ytm-deck-player-animating") &&
+        !document.documentElement.classList.contains("ytm-deck-player-handoff")) {
+      page.style.removeProperty("transform");
+      page.style.removeProperty("-webkit-transform");
+    }
     fixSidePanelLayout();
   }
 
@@ -4908,18 +5573,11 @@ window.YTMDeck = (function () {
   }
 
   function syncPlayingView() {
-    if (isPlayerPageOpen()) {
-      setPlayingMode(true);
-      fixPlayerPageLayout();
-      buildHeroUi();
-      mountSidePanel();
-      ensureQueueTab();
-    } else {
-      sideTabUserPicked = false;
-      setPlayingMode(false);
-      removeHeroUi();
+    if (isPlayerToggleAnimating()) {
+      setPlayerToggleAnimCallback(() => syncPlayingViewAfterAnim());
+      return;
     }
-    updateDeckUi();
+    syncPlayingViewAfterAnim();
   }
 
   function clickPlayerPageToggle(bar) {
@@ -4932,6 +5590,24 @@ window.YTMDeck = (function () {
 
     let toggleWasOpen = null;
 
+    const settleTogglePointerUp = (wasOpen, attempt) => {
+      if (wasOpen === null || wasOpen === undefined) return;
+      if (isPlayerToggleProgrammatic()) return;
+      const nowOpen = isPlayerPageOpen();
+      if (wasOpen !== nowOpen) {
+        if (nowOpen) schedulePlayingViewSync(getPlayerAnimRemainingMs());
+        else schedulePlayingCloseAfterAnim();
+        return;
+      }
+      if (attempt < 12) {
+        setTimeout(() => settleTogglePointerUp(wasOpen, attempt + 1), 50);
+        return;
+      }
+      if (isPlayerToggleAnimating()) return;
+      if (!wasOpen && !nowOpen) openPlayerPage();
+      else if (wasOpen && nowOpen) closePlayerPage();
+    };
+
     document.addEventListener(
       "pointerdown",
       (event) => {
@@ -4939,6 +5615,11 @@ window.YTMDeck = (function () {
         if (!event.target.closest("ytmusic-player-bar .toggle-player-page-button")) return;
         if (event.button !== 0) return;
         toggleWasOpen = isPlayerPageOpen();
+        if (toggleWasOpen) beginPlayerToggleAnim("close");
+        else {
+          enterPlayingViewForced();
+          beginPlayerToggleAnim("open");
+        }
       },
       true
     );
@@ -4955,21 +5636,7 @@ window.YTMDeck = (function () {
 
         const wasOpen = toggleWasOpen;
         toggleWasOpen = null;
-        setTimeout(() => {
-          if (isPlayerToggleProgrammatic()) return;
-          const nowOpen = isPlayerPageOpen();
-          if (wasOpen === true && nowOpen === false) {
-            syncPlayingView();
-            return;
-          }
-          if (wasOpen === false && nowOpen === true) {
-            syncPlayingView();
-            return;
-          }
-          // Solo corregir toques reales del usuario si YTM no cambió el DOM.
-          if (wasOpen === false && nowOpen === false) openPlayerPage();
-          else if (wasOpen === true && nowOpen === true) closePlayerPage();
-        }, 80);
+        setTimeout(() => settleTogglePointerUp(wasOpen, 0), 40);
       },
       false
     );
@@ -6159,7 +6826,16 @@ window.YTMDeck = (function () {
     }
 
     updateDeckUi();
-    deckUiReady = true;
+    // Marcar ready tras un par de frames para que el CSS Deck pinte bajo el splash Qt.
+    if (!deckUiReady) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          deckUiReady = true;
+        });
+      });
+    } else {
+      deckUiReady = true;
+    }
   }
 
   function applyVolumeLevel(volume01) {

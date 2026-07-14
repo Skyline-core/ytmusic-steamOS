@@ -45,6 +45,7 @@ class PlayerState:
     )
     _last_api_track_id: str = field(default="", repr=False)
     _last_api_song_sig: str = field(default="", repr=False)
+    _last_api_queue_sig: str = field(default="", repr=False)
     # Tras POST /shuffle|/switch-repeat evita que un scrape erróneo revierta el WS.
     _sticky_shuffle_until: float = field(default=0.0, repr=False)
     _sticky_shuffle_set_at: float = field(default=0.0, repr=False)
@@ -161,6 +162,31 @@ class PlayerState:
             ]
         )
 
+    def _queue_signature(self, items: list[dict[str, Any]] | None = None) -> str:
+        if items is None:
+            with self._lock:
+                items = list(self.queue_items)
+        parts: list[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            renderer = item.get("playlistPanelVideoRenderer")
+            if not isinstance(renderer, dict):
+                wrap = item.get("playlistPanelVideoWrapperRenderer")
+                if isinstance(wrap, dict):
+                    primary = wrap.get("primaryRenderer")
+                    if isinstance(primary, dict):
+                        renderer = primary.get("playlistPanelVideoRenderer")
+            if not isinstance(renderer, dict):
+                continue
+            vid = str(renderer.get("videoId") or "")
+            title = ""
+            runs = (renderer.get("title") or {}).get("runs") or []
+            if runs:
+                title = str(runs[0].get("text") or "")
+            parts.append(f"{vid}:{title}")
+        return "|".join(parts)
+
     def _notify_api_deltas(self, prev: dict[str, Any]) -> None:
         if not self._api_listeners:
             return
@@ -222,6 +248,11 @@ class PlayerState:
         if song_sig != self._last_api_song_sig and (meta.title or meta.art_url):
             self._last_api_song_sig = song_sig
             events.append(("PLAYER_INFO", self._player_info_payload(snap)))
+
+        queue_sig = self._queue_signature(snap.get("queue_items"))
+        if queue_sig != self._last_api_queue_sig:
+            self._last_api_queue_sig = queue_sig
+            events.append(("QUEUE_CHANGED", self.companion_queue()))
 
         for event_type, payload in events:
             self._emit_api(event_type, payload)
@@ -310,24 +341,82 @@ class PlayerState:
     def companion_queue(self) -> dict[str, Any]:
         with self._lock:
             items = list(self.queue_items)
+            playing_id = str(self.metadata.video_id or "")
+
         if items:
-            # Evitar items vacíos (título en blanco → Decky muestra Unknown).
             filled = []
+            seen_ids: set[str] = set()
+
             for item in items:
-                renderer = (
-                    item.get("playlistPanelVideoRenderer")
-                    if isinstance(item, dict)
-                    else None
-                )
+                if not isinstance(item, dict):
+                    continue
+
+                renderer = item.get("playlistPanelVideoRenderer")
+                if not isinstance(renderer, dict):
+                    wrap = item.get("playlistPanelVideoWrapperRenderer")
+                    if isinstance(wrap, dict):
+                        primary = wrap.get("primaryRenderer")
+                        if isinstance(primary, dict):
+                            renderer = primary.get("playlistPanelVideoRenderer")
+                            if not isinstance(renderer, dict):
+                                for value in primary.values():
+                                    if isinstance(value, dict) and (
+                                        value.get("title") or value.get("videoId")
+                                    ):
+                                        renderer = value
+                                        break
+
+                if not isinstance(renderer, dict):
+                    continue
+
                 title = ""
-                if isinstance(renderer, dict):
-                    runs = (renderer.get("title") or {}).get("runs") or []
-                    if runs:
-                        title = str(runs[0].get("text") or "")
-                if title.strip():
-                    filled.append(item)
+                runs = (renderer.get("title") or {}).get("runs") or []
+                if runs:
+                    title = str(runs[0].get("text") or "")
+                if not title.strip():
+                    simple = (renderer.get("title") or {}).get("simpleText")
+                    if simple:
+                        title = str(simple)
+                if not title.strip():
+                    continue
+
+                video_id = str(renderer.get("videoId") or "")
+                if video_id:
+                    if video_id in seen_ids:
+                        continue
+                    seen_ids.add(video_id)
+
+                # Normalizar a forma plana que Decky ya pinta.
+                out = {
+                    "playlistPanelVideoRenderer": {
+                        "title": {"runs": [{"text": title}]},
+                        "shortBylineText": renderer.get("shortBylineText")
+                        or {"runs": [{"text": ""}]},
+                        "thumbnail": renderer.get("thumbnail") or {"thumbnails": []},
+                        "videoId": video_id,
+                        "selected": bool(playing_id and video_id == playing_id)
+                        if playing_id
+                        else bool(renderer.get("selected")),
+                    }
+                }
+                length = renderer.get("lengthText")
+                if length:
+                    out["playlistPanelVideoRenderer"]["lengthText"] = length
+                filled.append(out)
+
+            if playing_id and filled:
+                any_sel = False
+                for item in filled:
+                    renderer = item["playlistPanelVideoRenderer"]
+                    if renderer.get("selected"):
+                        if any_sel:
+                            renderer["selected"] = False
+                        else:
+                            any_sel = True
+
             if filled:
                 return {"items": filled}
+
         fallback = self._current_queue_item()
         return {"items": [fallback] if fallback else []}
 

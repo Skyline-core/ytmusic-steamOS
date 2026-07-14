@@ -21,6 +21,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
 
 from ytmusic_decky.web.injector import DeckInjector
 from ytmusic_decky.web.profile import create_deck_profile
+from ytmusic_decky.web.splash import BootSplash
 
 if TYPE_CHECKING:
     from ytmusic_decky.player_state import PlayerState
@@ -215,9 +216,13 @@ class DeckWindow(QMainWindow):
         self._bridge = WebBridge(state, on_command, self)
         self._injector = DeckInjector()
         self._inject_attempts = 0
+        self._boot_splash_dismissed = False
         self._inject_timer = QTimer(self)
         self._inject_timer.setInterval(1500)
         self._inject_timer.timeout.connect(self._inject_all)
+        self._splash_ready_timer = QTimer(self)
+        self._splash_ready_timer.setInterval(120)
+        self._splash_ready_timer.timeout.connect(self._poll_splash_ready)
         self._cursor_timer = QTimer(self)
         self._cursor_timer.setInterval(120)
         self._cursor_timer.timeout.connect(self._hide_system_cursor)
@@ -237,6 +242,13 @@ class DeckWindow(QMainWindow):
         self._view.setPage(page)
         self._bridge.attach_view(self._view)
         self.setCentralWidget(self._view)
+
+        # Overlay en la ventana (no hijo del WebView ni stack): Chromium tapa hijos
+        # del QWebEngineView, pero un QWidget hermano sí se pinta encima.
+        self._boot_splash = BootSplash(self)
+        self._sync_boot_splash_geometry()
+        self._boot_splash.raise_()
+        self._boot_splash.show()
 
         settings = self._view.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
@@ -258,6 +270,9 @@ class DeckWindow(QMainWindow):
             self.show()
         self.raise_()
         self.activateWindow()
+        self._boot_splash.mark_shown()
+        self._sync_boot_splash_geometry()
+        self._boot_splash.raise_()
 
         if _touch_ui_mode():
             self._hide_system_cursor()
@@ -312,6 +327,53 @@ class DeckWindow(QMainWindow):
     def bridge(self) -> WebBridge:
         return self._bridge
 
+    def _sync_boot_splash_geometry(self) -> None:
+        splash = getattr(self, "_boot_splash", None)
+        if splash is None or self._view is None:
+            return
+        splash.setGeometry(self._view.geometry())
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if getattr(self, "_boot_splash", None) is not None and self._boot_splash.isVisible():
+            self._sync_boot_splash_geometry()
+            self._boot_splash.raise_()
+
+    def _dismiss_boot_splash(self) -> None:
+        if self._boot_splash_dismissed:
+            return
+        splash = getattr(self, "_boot_splash", None)
+        if splash is None:
+            return
+        self._boot_splash_dismissed = True
+        if self._splash_ready_timer.isActive():
+            self._splash_ready_timer.stop()
+
+        def _hide() -> None:
+            splash.hide()
+            splash.deleteLater()
+            self._boot_splash = None
+            # Solo resize: el layout Deck ya debió aplicar bajo el splash.
+            if self._view is not None:
+                self._view.updateGeometry()
+            self._bridge.run_js("window.dispatchEvent(new Event('resize'));")
+
+        # Mínimo corto: la espera real es splashReady (CSS + layout).
+        splash.dismiss(min_ms=500, on_done=_hide)
+
+    def _poll_splash_ready(self) -> None:
+        if self._boot_splash_dismissed or self._view is None:
+            if self._splash_ready_timer.isActive():
+                self._splash_ready_timer.stop()
+            return
+        self._view.page().runJavaScript(self._injector.probe_call(), self._on_probe_result)
+
+    def _maybe_dismiss_splash_from_probe(self, data: dict) -> None:
+        if self._boot_splash_dismissed or not data.get("splashReady"):
+            return
+        logger.info("UI Deck lista (CSS+layout); quitando splash")
+        self._dismiss_boot_splash()
+
     def _install_profile_scripts(self, profile: QWebEngineProfile) -> None:
         """Registra CSS en el perfil Qt (solo DocumentReady, DOM ya existe)."""
         scripts = profile.scripts()
@@ -344,8 +406,8 @@ class DeckWindow(QMainWindow):
         self._inject_attempts += 1
 
         page.runJavaScript(self._injector.webchannel_call(), self._on_webchannel_result)
-        page.runJavaScript(self._injector.css_call(), self._on_css_result)
-        page.runJavaScript(self._injector.bridge_call(), self._on_bridge_result)
+        # CSS primero; el bridge espera al callback para no pintar layout sin estilos.
+        page.runJavaScript(self._injector.css_call(), self._on_css_then_bridge)
 
         if self._inject_attempts in (1, 2, 4, 8) or self._inject_attempts % 10 == 0:
             page.runJavaScript(self._injector.probe_call(), self._on_probe_result)
@@ -354,9 +416,12 @@ class DeckWindow(QMainWindow):
             self._inject_timer.stop()
             logger.info("Inyección inicial completada")
 
-    def _on_css_result(self, result) -> None:
+    def _on_css_then_bridge(self, result) -> None:
         if self._inject_attempts <= 3 or (isinstance(result, str) and result.startswith("css-error")):
             logger.info("CSS inject → %s", result)
+        if self._view is None:
+            return
+        self._view.page().runJavaScript(self._injector.bridge_call(), self._on_bridge_result)
 
     def _on_webchannel_result(self, result) -> None:
         if self._inject_attempts <= 4 or (isinstance(result, str) and str(result).startswith("channel-")):
@@ -365,16 +430,23 @@ class DeckWindow(QMainWindow):
     def _on_bridge_result(self, result) -> None:
         if self._inject_attempts <= 3 or (isinstance(result, str) and "error" in str(result)):
             logger.info("Bridge inject → %s", result)
+        if result == "bridge-ok" and not self._boot_splash_dismissed:
+            # No quitar aún: esperar splashReady (CSS + deckUiReady + paint frames).
+            if not self._splash_ready_timer.isActive():
+                self._splash_ready_timer.start()
+            self._poll_splash_ready()
 
     def _on_probe_result(self, result) -> None:
         logger.info("Probe inyección → %s", result)
-        if result:
-            try:
-                data = json.loads(result)
-                if data.get("deckClass") or data.get("hasStyleTag") or data.get("hasSheet"):
-                    self._inject_timer.setInterval(4000)
-            except json.JSONDecodeError:
-                pass
+        if not result:
+            return
+        try:
+            data = json.loads(result)
+        except json.JSONDecodeError:
+            return
+        if data.get("deckClass") or data.get("hasStyleTag") or data.get("hasSheet"):
+            self._inject_timer.setInterval(4000)
+        self._maybe_dismiss_splash_from_probe(data)
 
     def _on_load_progress(self, progress: int) -> None:
         if progress in (0, 25, 50, 75, 100):
@@ -386,10 +458,11 @@ class DeckWindow(QMainWindow):
             return
         logger.info("Página cargada; iniciando inyección Deck")
         self._inject_attempts = 0
-        page = self._view.page()
         self._inject_timer.start()
         for delay in (0, 500, 1500):
             QTimer.singleShot(delay, self._inject_all)
+        # Failsafe: no dejar splash colgado si el probe no marca ready.
+        QTimer.singleShot(5000, self._dismiss_boot_splash)
 
     def keyPressEvent(self, event) -> None:
         key = event.key()

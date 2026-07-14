@@ -1894,8 +1894,67 @@ html[data-ytm-deck="1"].ytm-deck-playing #player-page {
   padding: 16px !important;
   box-sizing: border-box !important;
   pointer-events: auto !important;
-  transform: none !important;
   background: transparent !important;
+}
+
+/* En reposo, sin animación ni handoff: fijar transform para evitar restos de YTM. */
+html[data-ytm-deck="1"].ytm-deck-playing:not(.ytm-deck-player-animating):not(.ytm-deck-player-handoff) ytmusic-player-page,
+html[data-ytm-deck="1"].ytm-deck-playing:not(.ytm-deck-player-animating):not(.ytm-deck-player-handoff) #player-page {
+  transform: none !important;
+}
+
+/* Puente visual: mantiene el último frame antes de cambiar layout. */
+html[data-ytm-deck="1"].ytm-deck-player-handoff:not(.ytm-deck-player-handoff-close) ytmusic-player-page,
+html[data-ytm-deck="1"].ytm-deck-player-handoff:not(.ytm-deck-player-handoff-close) #player-page {
+  transform: translate3d(0, 0, 0) !important;
+  opacity: 1 !important;
+  z-index: 5 !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-player-handoff-close ytmusic-player-page,
+html[data-ytm-deck="1"].ytm-deck-player-handoff-close #player-page {
+  transform: translate3d(0, 108%, 0) !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  z-index: 5 !important;
+}
+
+/* Subida / bajada propia: layout Deck ya está (cola a la derecha). */
+@keyframes deck-player-rise {
+  from {
+    transform: translate3d(0, 108%, 0);
+    opacity: 0.92;
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes deck-player-fall {
+  from {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+  to {
+    transform: translate3d(0, 108%, 0);
+    opacity: 0.92;
+  }
+}
+
+html[data-ytm-deck="1"].ytm-deck-player-opening ytmusic-player-page,
+html[data-ytm-deck="1"].ytm-deck-player-opening #player-page {
+  z-index: 5 !important;
+  animation: deck-player-rise 380ms cubic-bezier(0.22, 1, 0.36, 1) forwards !important;
+  will-change: transform, opacity;
+}
+
+html[data-ytm-deck="1"].ytm-deck-player-closing ytmusic-player-page,
+html[data-ytm-deck="1"].ytm-deck-player-closing #player-page {
+  z-index: 5 !important;
+  animation: deck-player-fall 340ms cubic-bezier(0.4, 0, 0.7, 0.2) forwards !important;
+  will-change: transform, opacity;
+  pointer-events: none !important;
 }
 
 html[data-ytm-deck="1"].ytm-deck-playing .deck-hero-wrap {
@@ -2476,6 +2535,23 @@ html[data-ytm-deck="1"] #side-panel ytmusic-queue-item[data-deck-reorder-ok="1"]
 html[data-ytm-deck="1"] #side-panel ytmusic-playlist-panel-video-renderer[data-deck-reorder-ok="1"],
 html[data-ytm-deck="1"] #side-panel ytmusic-player-queue-item[data-deck-reorder-ok="1"] {
   touch-action: none !important;
+}
+
+html[data-ytm-deck="1"] #side-panel .deck-queue-drag-placeholder,
+html[data-ytm-deck="1"] #side-panel ytmusic-queue-item.deck-queue-drag-placeholder,
+html[data-ytm-deck="1"] #side-panel ytmusic-playlist-panel-video-renderer.deck-queue-drag-placeholder,
+html[data-ytm-deck="1"] #side-panel ytmusic-player-queue-item.deck-queue-drag-placeholder {
+  opacity: 0.28 !important;
+  filter: grayscale(0.2) !important;
+}
+
+html[data-ytm-deck="1"] .deck-queue-drag-float {
+  pointer-events: none !important;
+  z-index: 10000 !important;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.5) !important;
+  border-radius: var(--deck-queue-item-radius, 14px) !important;
+  background: rgba(var(--deck-panel-rgb, 30, 24, 42), 0.96) !important;
+  overflow: hidden !important;
 }
 
 html[data-ytm-deck="1"].ytm-deck-queue-reordering #side-panel ytmusic-queue-tab,

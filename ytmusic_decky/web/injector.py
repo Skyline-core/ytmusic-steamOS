@@ -44,12 +44,6 @@ __ytmDeckWhenReady(function() {
     if (window.__YTM_DECK_TOUCH__) {
       root.classList.add('ytm-deck-touch', 'ytm-deck-steam');
     }
-    root.style.setProperty(
-      'background',
-      'linear-gradient(160deg, #1f1035 0%, #0d0618 45%, #08040f 100%)',
-      'important'
-    );
-
     const css = window.__YTM_DECK_CSS__;
     if (!css) return 'css-no-data';
 
@@ -129,14 +123,22 @@ PROBE_JS = """
 (function() {
   const root = document.documentElement;
   if (!root) return '{"ready":false}';
+  const hasCss = !!(window.__YTM_DECK_SHEET__ || document.getElementById('ytm-deck-styles'));
+  const uiReady = !!(window.YTMDeck && window.YTMDeck.ready);
+  const started = !!window.__YTM_DECK_STARTED__;
+  const deckClass = root.classList.contains('ytm-deck-mode');
   return JSON.stringify({
     ready: true,
-    deckClass: root.classList.contains('ytm-deck-mode'),
+    deckClass: deckClass,
     dataAttr: root.getAttribute('data-ytm-deck'),
     hasSheet: !!window.__YTM_DECK_SHEET__,
     hasStyleTag: !!document.getElementById('ytm-deck-styles'),
+    hasCss: hasCss,
     hasDeck: !!window.YTMDeck,
-    started: !!window.__YTM_DECK_STARTED__,
+    started: started,
+    uiReady: uiReady,
+    // Listo para quitar splash: CSS Deck + layout aplicado (sin ping de red).
+    splashReady: !!(hasCss && deckClass && started && uiReady),
     hasBridge: !!(window.bridge && window.bridge.reportState),
     channelReady: !!window.__YTM_DECK_CHANNEL_READY__,
     hasQWebChannel: typeof QWebChannel !== 'undefined',
@@ -232,7 +234,7 @@ class DeckInjector:
             + steam_hint
             + INIT_WEBCHANNEL_JS
             + "\n"
-            "window.__YTM_DECK_BRIDGE_REV_TARGET__ = 15;\n"
+            "window.__YTM_DECK_BRIDGE_REV_TARGET__ = 30;\n"
             "if (!window.YTMDeck || window.__YTM_DECK_BRIDGE_REV__ !== window.__YTM_DECK_BRIDGE_REV_TARGET__) {\n"
             + self._bridge
             + "\n"
