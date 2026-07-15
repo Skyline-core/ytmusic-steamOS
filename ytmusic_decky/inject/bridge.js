@@ -6195,6 +6195,9 @@ window.YTMDeck = (function () {
   let lastPageChromeMode = "";
   let libraryNavLockUntil = 0;
   let librarySyncGen = 0;
+  let navLayoutQuietUntil = 0;
+  const pageChromeFp = Object.create(null);
+  const PAGE_FP_TTL_MS = 3 * 60 * 1000;
 
   function isOnSearchUrl() {
     return /\/search/.test(location.pathname || "");
@@ -6209,6 +6212,57 @@ window.YTMDeck = (function () {
     const browse = qs("ytmusic-browse-response:not([hidden])");
     // Search activo solo si browse no está también visible (evita pelear capas).
     return !browse;
+  }
+
+  function beginNavQuiet(ms) {
+    navLayoutQuietUntil = Math.max(navLayoutQuietUntil, performance.now() + (ms || 1600));
+  }
+
+  function navQuietActive() {
+    return performance.now() < navLayoutQuietUntil;
+  }
+
+  function pageChromeFingerprint(kind) {
+    const path = location.pathname || "";
+    if (kind === "library") {
+      const tabs = findLibraryTabsEl();
+      const tabLabel = (tabs?.textContent || "").replace(/\s+/g, " ").trim().slice(0, 72);
+      const browse = qs("ytmusic-browse-response");
+      const n = browse
+        ? browse.querySelectorAll(
+            "ytmusic-two-row-item-renderer, ytmusic-responsive-list-item-renderer, ytmusic-grid-renderer"
+          ).length
+        : 0;
+      return `lib|${path}|${tabLabel}|${n}`;
+    }
+    if (kind === "search") {
+      return `search|${path}|${(location.search || "").slice(0, 96)}`;
+    }
+    const browse = qs("ytmusic-browse-response:not([hidden])") || qs("ytmusic-browse-response");
+    if (!browse || browse.hasAttribute("hidden")) return `home|${path}|0`;
+    const chip = (qs("ytmusic-chip-cloud-renderer", browse)?.textContent || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 40);
+    const n = browse.querySelectorAll(
+      "ytmusic-shelf-renderer, ytmusic-carousel-shelf-renderer, ytmusic-two-row-item-renderer"
+    ).length;
+    return `home|${path}|${chip}|${n}`;
+  }
+
+  function rememberPageChromeFp(kind) {
+    if (!kind) return;
+    const fp = pageChromeFingerprint(kind);
+    if (!fp || /\|0$/.test(fp)) return;
+    pageChromeFp[kind] = { fp, at: performance.now() };
+  }
+
+  function warmPageChrome(kind) {
+    const cached = pageChromeFp[kind];
+    if (!cached) return false;
+    if (performance.now() - cached.at > PAGE_FP_TTL_MS) return false;
+    const now = pageChromeFingerprint(kind);
+    return !!now && now === cached.fp && !/\|0$/.test(now);
   }
 
   function guideEntrySignal(entry) {
@@ -6320,22 +6374,38 @@ window.YTMDeck = (function () {
   }
 
   function scheduleLibraryChromeSync(maxMs) {
+    // Short-circuit: DOM ya listo o fingerprint caliente de esta sesión.
+    if (libraryChromeReady() || warmPageChrome("library")) {
+      syncPageChrome(true);
+      if (libraryChromeReady()) {
+        rememberPageChromeFp("library");
+        cancelLibraryChromeSync();
+        return;
+      }
+    }
+
     cancelLibraryChromeSync();
     const gen = librarySyncGen;
     const end = performance.now() + (maxMs || 1200);
     const tick = () => {
       if (gen !== librarySyncGen) return;
       syncPageChrome(true);
-      if (!wantsLibraryPage() || libraryChromeReady() || performance.now() >= end) return;
+      if (libraryChromeReady()) {
+        rememberPageChromeFp("library");
+        return;
+      }
+      if (!wantsLibraryPage() || performance.now() >= end) return;
       requestAnimationFrame(tick);
     };
     // Sync ligero por raf + timeouts (sin MutationObserver en todo el browse).
     syncPageChrome(true);
     requestAnimationFrame(tick);
-    [32, 80, 160, 320, 560, 900].forEach((ms) => {
+    const delays = maxMs && maxMs <= 900 ? [24, 64, 140, 280, 520] : [32, 80, 160, 320, 560, 900];
+    delays.forEach((ms) => {
       setTimeout(() => {
         if (gen !== librarySyncGen) return;
         syncPageChrome(true);
+        if (libraryChromeReady()) rememberPageChromeFp("library");
       }, ms);
     });
   }
@@ -6426,9 +6496,13 @@ window.YTMDeck = (function () {
     if (!wantsLib) {
       setLibraryChromeVisible(false);
       cancelLibraryChromeSync();
+      if (!onSearch && browseContentSignal()) rememberPageChromeFp("home");
     } else {
       setLibraryChromeVisible(onLibrary);
-      if (onLibrary) cancelLibraryChromeSync();
+      if (onLibrary) {
+        rememberPageChromeFp("library");
+        cancelLibraryChromeSync();
+      }
     }
 
     if (!force && mode === lastPageChromeMode) {
@@ -6437,7 +6511,10 @@ window.YTMDeck = (function () {
     }
     lastPageChromeMode = mode;
 
-    if (onSearch) styleSearchResultsChromeOnce();
+    if (onSearch) {
+      styleSearchResultsChromeOnce();
+      rememberPageChromeFp("search");
+    }
   }
 
   function fixLibraryTabs() {
@@ -6456,28 +6533,42 @@ window.YTMDeck = (function () {
       const next = classifyGuideSignal(guideEntrySignal(entry));
       if (next === "other") return;
       lastGuideNav = next;
+      // Nav-light: no applyDeckLayout pesado mientras YTM navega.
+      beginNavQuiet(1600);
       // Bloquea que yt-navigate-* restaure estado por URL vieja durante la transición.
       libraryNavLockUntil = performance.now() + 1500;
 
       if (lastGuideNav === "library") {
-        setLibraryChromeVisible(false);
-        scheduleLibraryChromeSync(1400);
-      } else if (lastGuideNav === "home" || lastGuideNav === "search") {
+        if (libraryChromeReady() || warmPageChrome("library")) {
+          syncPageChrome(true);
+          if (libraryChromeReady()) rememberPageChromeFp("library");
+          else {
+            setLibraryChromeVisible(false);
+            scheduleLibraryChromeSync(800);
+          }
+        } else {
+          setLibraryChromeVisible(false);
+          scheduleLibraryChromeSync(1400);
+        }
+      } else {
         cancelLibraryChromeSync();
         setLibraryChromeVisible(false);
+        syncPageChrome(true);
+        if (lastGuideNav === "home" && (browseContentSignal() || warmPageChrome("home"))) {
+          rememberPageChromeFp("home");
+        }
       }
-      syncPageChrome(true);
     };
 
     document.addEventListener("click", (event) => mark(event.target), true);
 
     const onNavStart = () => {
-      // Si el click ya dijo "salir", oculta al instante al iniciar navegación.
-      if (lastGuideNav !== "library") {
-        setLibraryChromeVisible(false);
+      beginNavQuiet(1200);
+      // Si biblioteca ya está caliente, no ocultar chrome (evita flash).
+      if (lastGuideNav === "library" && (libraryChromeReady() || warmPageChrome("library"))) {
+        syncPageChrome(true);
         return;
       }
-      // Entrando a biblioteca: mantiene oculta hasta tabs reales + chips.
       setLibraryChromeVisible(false);
     };
 
@@ -6496,7 +6587,18 @@ window.YTMDeck = (function () {
 
       requestAnimationFrame(() => {
         syncPageChrome(true);
-        if (wantsLibraryPage() && !libraryChromeReady()) scheduleLibraryChromeSync(1400);
+        if (wantsLibraryPage()) {
+          if (libraryChromeReady() || warmPageChrome("library")) {
+            if (libraryChromeReady()) rememberPageChromeFp("library");
+            else scheduleLibraryChromeSync(800);
+          } else {
+            scheduleLibraryChromeSync(1400);
+          }
+        } else if (lastGuideNav === "home" && browseContentSignal()) {
+          rememberPageChromeFp("home");
+        } else if (lastGuideNav === "search" || isOnSearchUrl()) {
+          rememberPageChromeFp("search");
+        }
       });
     };
 
@@ -7685,6 +7787,8 @@ window.YTMDeck = (function () {
   }
 
   function scheduleLayout() {
+    // Durante cambio de pestaña: evita applyDeckLayout/fixContentOffset pesados.
+    if (navQuietActive()) return;
     if (layoutTimer) clearTimeout(layoutTimer);
     layoutTimer = setTimeout(applyDeckLayout, 600);
   }

@@ -316,7 +316,7 @@ class DeckInjector:
             + steam_hint
             + INIT_WEBCHANNEL_JS
             + "\n"
-            "window.__YTM_DECK_BRIDGE_REV_TARGET__ = 68;\n"
+            "window.__YTM_DECK_BRIDGE_REV_TARGET__ = 69;\n"
             "if (!window.YTMDeck || window.__YTM_DECK_BRIDGE_REV__ !== window.__YTM_DECK_BRIDGE_REV_TARGET__) {\n"
             + self._bridge
             + "\n"
