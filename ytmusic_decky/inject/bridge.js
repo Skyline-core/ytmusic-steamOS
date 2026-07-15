@@ -5956,9 +5956,15 @@ window.YTMDeck = (function () {
     const wrappers =
       "ytmusic-multi-carousel-item-renderer .text-wrapper, ytmusic-multi-carousel-item-renderer .title-wrapper, ytmusic-multi-carousel-item-renderer .subtitle-wrapper, ytmusic-two-row-item-renderer .text-wrapper, ytmusic-two-row-item-renderer .column-content, ytmusic-two-row-item-renderer .title-group, ytmusic-two-row-item-renderer .subtitle-group";
     qsa(wrappers).forEach((el) => {
-      el.style.setProperty("max-height", "fit-content", "important");
+      el.style.setProperty("position", "relative", "important");
+      el.style.setProperty("display", "flex", "important");
+      el.style.setProperty("flex-direction", "column", "important");
+      el.style.setProperty("gap", "2px", "important");
+      el.style.setProperty("max-height", "none", "important");
       el.style.setProperty("height", "auto", "important");
-      el.style.setProperty("overflow", "visible", "important");
+      el.style.setProperty("overflow", "hidden", "important");
+      el.style.setProperty("top", "auto", "important");
+      el.style.setProperty("bottom", "auto", "important");
     });
 
     qsa("ytmusic-carousel, ytmusic-multi-carousel-item-renderer, ytmusic-two-row-item-renderer").forEach(
@@ -5977,15 +5983,35 @@ window.YTMDeck = (function () {
     );
 
     qsa(
-      "ytmusic-browse-response ytmusic-multi-carousel-item-renderer .title, ytmusic-browse-response ytmusic-multi-carousel-item-renderer .subtitle, ytmusic-browse-response ytmusic-two-row-item-renderer .title, ytmusic-browse-response ytmusic-two-row-item-renderer .subtitle, ytmusic-browse-response ytmusic-two-row-item-renderer .byline"
+      "ytmusic-browse-response ytmusic-multi-carousel-item-renderer .title, ytmusic-browse-response ytmusic-two-row-item-renderer .title, ytmusic-browse-response ytmusic-multi-carousel-item-renderer yt-formatted-string.title, ytmusic-browse-response ytmusic-two-row-item-renderer yt-formatted-string.title"
     ).forEach((el) => {
-      el.style.setProperty("display", "block", "important");
-      el.style.setProperty("max-height", "fit-content", "important");
-      el.style.setProperty("overflow", "visible", "important");
-      el.style.setProperty("-webkit-line-clamp", "unset", "important");
-      el.style.setProperty("line-clamp", "unset", "important");
+      el.style.setProperty("position", "relative", "important");
+      el.style.setProperty("display", "-webkit-box", "important");
+      el.style.setProperty("-webkit-box-orient", "vertical", "important");
+      el.style.setProperty("-webkit-line-clamp", "2", "important");
+      el.style.setProperty("line-clamp", "2", "important");
+      el.style.setProperty("overflow", "hidden", "important");
+      el.style.setProperty("max-height", "none", "important");
       el.style.setProperty("white-space", "normal", "important");
-      el.style.setProperty("text-overflow", "clip", "important");
+      el.style.setProperty("text-overflow", "ellipsis", "important");
+      el.style.setProperty("line-height", "1.35", "important");
+      el.style.removeProperty("height");
+    });
+
+    qsa(
+      "ytmusic-browse-response ytmusic-multi-carousel-item-renderer .subtitle, ytmusic-browse-response ytmusic-two-row-item-renderer .subtitle, ytmusic-browse-response ytmusic-two-row-item-renderer .byline, ytmusic-browse-response ytmusic-multi-carousel-item-renderer yt-formatted-string.subtitle, ytmusic-browse-response ytmusic-two-row-item-renderer yt-formatted-string.subtitle, ytmusic-browse-response ytmusic-two-row-item-renderer yt-formatted-string.byline"
+    ).forEach((el) => {
+      el.style.setProperty("position", "relative", "important");
+      el.style.setProperty("display", "-webkit-box", "important");
+      el.style.setProperty("-webkit-box-orient", "vertical", "important");
+      el.style.setProperty("-webkit-line-clamp", "2", "important");
+      el.style.setProperty("line-clamp", "2", "important");
+      el.style.setProperty("overflow", "hidden", "important");
+      el.style.setProperty("max-height", "none", "important");
+      el.style.setProperty("white-space", "normal", "important");
+      el.style.setProperty("text-overflow", "ellipsis", "important");
+      el.style.setProperty("top", "auto", "important");
+      el.style.setProperty("bottom", "auto", "important");
       el.style.removeProperty("height");
     });
 
