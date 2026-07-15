@@ -8,7 +8,7 @@ import time
 from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Slot, QEvent
-from PySide6.QtGui import QCursor, QGuiApplication, QMouseEvent, QPixmap
+from PySide6.QtGui import QCursor, QDesktopServices, QGuiApplication, QMouseEvent, QPixmap
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import (
     QWebEnginePage,
@@ -176,6 +176,7 @@ class WebBridge(QObject):
         self._state = state
         self._on_command = on_command
         self._view: QWebEngineView | None = None
+        self._keyboard_open = False
 
     def attach_view(self, view: QWebEngineView) -> None:
         self._view = view
@@ -191,6 +192,27 @@ class WebBridge(QObject):
     @Slot(str)
     def log(self, message: str) -> None:
         logger.debug("[web] %s", message)
+
+    @Slot()
+    def showKeyboard(self) -> None:
+        """Abre el teclado en pantalla de Steam Deck (Game Mode)."""
+        if not _touch_ui_mode() and not _steam_touch_mode():
+            return
+        # Equivalente a Steam+X (SDL / gamescope deeplink).
+        url = "steam://open/keyboard?XPosition=0&YPosition=0&Width=0&Height=0&Mode=0"
+        if _open_steam_deeplink(url):
+            self._keyboard_open = True
+            logger.debug("Steam OSK: open requested")
+        else:
+            logger.debug("Steam OSK: no se pudo abrir steam://open/keyboard")
+
+    @Slot()
+    def hideKeyboard(self) -> None:
+        if not self._keyboard_open and not _touch_ui_mode() and not _steam_touch_mode():
+            return
+        _open_steam_deeplink("steam://close/keyboard")
+        self._keyboard_open = False
+        logger.debug("Steam OSK: close requested")
 
     def run_js(self, script: str) -> None:
         if self._view is None:
@@ -375,19 +397,26 @@ class DeckWindow(QMainWindow):
         self._dismiss_boot_splash()
 
     def _install_profile_scripts(self, profile: QWebEngineProfile) -> None:
-        """Registra CSS en el perfil Qt (solo DocumentReady, DOM ya existe)."""
+        """Registra CSS (+ OSK en subframes) en el perfil Qt."""
         scripts = profile.scripts()
         self._remove_named_scripts(scripts, "ytm-deck")
 
-        source = self._injector.profile_script_source()
-        script = QWebEngineScript()
-        script.setName("ytm-deck-css-ready")
-        script.setSourceCode(source)
-        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
-        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
-        script.setRunsOnSubFrames(True)
-        scripts.insert(script)
-        logger.info("Script de perfil registrado (DocumentReady)")
+        css_script = QWebEngineScript()
+        css_script.setName("ytm-deck-css-ready")
+        css_script.setSourceCode(self._injector.profile_script_source())
+        css_script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
+        css_script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        css_script.setRunsOnSubFrames(True)
+        scripts.insert(css_script)
+
+        osk_script = QWebEngineScript()
+        osk_script.setName("ytm-deck-osk-subframes")
+        osk_script.setSourceCode(self._injector.profile_osk_script_source())
+        osk_script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
+        osk_script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        osk_script.setRunsOnSubFrames(True)
+        scripts.insert(osk_script)
+        logger.info("Scripts de perfil registrados (CSS + OSK subframes)")
 
     @staticmethod
     def _remove_named_scripts(scripts, prefix: str) -> None:
@@ -408,6 +437,7 @@ class DeckWindow(QMainWindow):
         page.runJavaScript(self._injector.webchannel_call(), self._on_webchannel_result)
         # CSS primero; el bridge espera al callback para no pintar layout sin estilos.
         page.runJavaScript(self._injector.css_call(), self._on_css_then_bridge)
+        page.runJavaScript(self._injector.osk_call())
 
         if self._inject_attempts in (1, 2, 4, 8) or self._inject_attempts % 10 == 0:
             page.runJavaScript(self._injector.probe_call(), self._on_probe_result)
@@ -497,6 +527,30 @@ class DeckWindow(QMainWindow):
             event.accept()
             return
         super().keyPressEvent(event)
+
+
+def _open_steam_deeplink(url: str) -> bool:
+    """Abre un steam://… (OSK, etc.). Intenta Qt, luego xdg-open/steam."""
+    import shutil
+    import subprocess
+
+    if QDesktopServices.openUrl(QUrl(url)):
+        return True
+    for binary in ("xdg-open", "steam"):
+        path = shutil.which(binary)
+        if not path:
+            continue
+        try:
+            subprocess.Popen(  # noqa: S603 — binario del sistema, URL fija steam://
+                [path, url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            return True
+        except OSError:
+            continue
+    return False
 
 
 def _steam_touch_mode() -> bool:

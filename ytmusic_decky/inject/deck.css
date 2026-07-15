@@ -34,6 +34,7 @@
   --deck-avatar-size: 48px;
   --deck-player-h: 112px;
   --deck-ui-scale: 1;
+  --deck-search-h: 52px;
   --deck-player-progress-inset-left: 42px;
   --deck-player-progress-inset-right: 42px;
   --deck-player-progress-knob: 26px;
@@ -163,13 +164,11 @@ html[data-ytm-deck="1"] ytmusic-app {
   color: var(--deck-text) !important;
 }
 
-/* Anular ambient de YTM en el fondo (solo usamos el color en acentos) */
+/* Anular ambient de YTM en el fondo (solo usamos el color en acentos).
+   No tocar .background-gradient / fullbleed: ahí va el banner de artista/álbum. */
 html[data-ytm-deck="1"] ytmusic-app-layout,
 html[data-ytm-deck="1"] #content,
 html[data-ytm-deck="1"] ytmusic-browse-response,
-html[data-ytm-deck="1"] .background-gradient,
-html[data-ytm-deck="1"] .browse-background,
-html[data-ytm-deck="1"] .gradient-container,
 html[data-ytm-deck="1"] ytmusic-app-layout::before,
 html[data-ytm-deck="1"] ytmusic-app-layout::after,
 html[data-ytm-deck="1"].ytm-deck-playing ytmusic-player-page,
@@ -180,11 +179,76 @@ html[data-ytm-deck="1"].ytm-deck-playing ytmusic-app-layout #content {
   background-image: none !important;
 }
 
+/* Franja negra sticky del browse (no el hero de artista) */
+html[data-ytm-deck="1"] ytmusic-browse-response > .background-gradient,
+html[data-ytm-deck="1"] ytmusic-browse-response > .browse-background {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+/* Imagen decorativa de fondo de HOME (YTM fullbleed), no portadas de álbum
+   (esas son ytmusic-thumbnail-renderer / yt-img-shadow dentro de shelves).
+   En canal/artista hay immersive|visual|detail-header → no se oculta. */
+html[data-ytm-deck="1"]
+  ytmusic-browse-response:not(:has(ytmusic-immersive-header-renderer)):not(
+    :has(ytmusic-visual-header-renderer)
+  ):not(:has(ytmusic-detail-header-renderer))
+  > .background-gradient,
+html[data-ytm-deck="1"]
+  ytmusic-browse-response:not(:has(ytmusic-immersive-header-renderer)):not(
+    :has(ytmusic-visual-header-renderer)
+  ):not(:has(ytmusic-detail-header-renderer))
+  > .browse-background {
+  background-image: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+html[data-ytm-deck="1"]
+  ytmusic-browse-response:not(:has(ytmusic-immersive-header-renderer)):not(
+    :has(ytmusic-visual-header-renderer)
+  ):not(:has(ytmusic-detail-header-renderer))
+  ytmusic-fullbleed-thumbnail-renderer {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  max-height: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+
+html[data-ytm-deck="1"]
+  ytmusic-browse-response:not(:has(ytmusic-immersive-header-renderer)):not(
+    :has(ytmusic-visual-header-renderer)
+  ):not(:has(ytmusic-detail-header-renderer))
+  > .background-gradient::before,
+html[data-ytm-deck="1"]
+  ytmusic-browse-response:not(:has(ytmusic-immersive-header-renderer)):not(
+    :has(ytmusic-visual-header-renderer)
+  ):not(:has(ytmusic-detail-header-renderer))
+  > .background-gradient::after,
+html[data-ytm-deck="1"]
+  ytmusic-browse-response:not(:has(ytmusic-immersive-header-renderer)):not(
+    :has(ytmusic-visual-header-renderer)
+  ):not(:has(ytmusic-detail-header-renderer))
+  > .browse-background::before,
+html[data-ytm-deck="1"]
+  ytmusic-browse-response:not(:has(ytmusic-immersive-header-renderer)):not(
+    :has(ytmusic-visual-header-renderer)
+  ):not(:has(ytmusic-detail-header-renderer))
+  > .browse-background::after {
+  display: none !important;
+  background: none !important;
+  background-image: none !important;
+  opacity: 0 !important;
+  content: none !important;
+}
+
 /* ---- Ocultar chrome ---- */
 html[data-ytm-deck="1"] ytmusic-masthead,
 html[data-ytm-deck="1"] #masthead-container,
-html[data-ytm-deck="1"] .search-box,
-html[data-ytm-deck="1"] ytmusic-search-box,
 html[data-ytm-deck="1"] ytmusic-cast-button,
 html[data-ytm-deck="1"] ytmusic-sign-in-renderer,
 html[data-ytm-deck="1"] .sign-in-link,
@@ -297,6 +361,62 @@ html[data-ytm-deck="1"] ytmusic-nav-bar .center-content {
   display: none !important;
 }
 
+/* ---- Buscador Deck: nativo reubicado + sugerencias con tema ---- */
+html[data-ytm-deck="1"] .deck-search-host {
+  position: absolute !important;
+  top: var(--deck-gap) !important;
+  left: calc(var(--deck-nav-w) + var(--deck-col-gap) + var(--deck-gap)) !important;
+  right: var(--deck-gap) !important;
+  height: var(--deck-search-h) !important;
+  z-index: 75 !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  overflow: visible !important;
+}
+
+html[data-ytm-deck="1"] .deck-search-host ytmusic-search-box,
+html[data-ytm-deck="1"] ytmusic-search-box.deck-search-relocated {
+  display: block !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  position: relative !important;
+  left: auto !important;
+  top: auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  height: var(--deck-search-h) !important;
+  margin: 0 !important;
+  opacity: 1 !important;
+  overflow: visible !important;
+  z-index: 76 !important;
+  background: transparent !important;
+  box-sizing: border-box !important;
+}
+
+/* Abierto: crecer hacia abajo sobre chips (sugerencias completas) */
+html[data-ytm-deck="1"] .deck-search-host ytmusic-search-box[opened],
+html[data-ytm-deck="1"] ytmusic-search-box.deck-search-relocated[opened] {
+  height: auto !important;
+  max-height: min(58vh, 460px) !important;
+  overflow: hidden !important;
+  border-radius: 12px !important;
+  background: rgba(18, 16, 24, 0.97) !important;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-playing .deck-search-host {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+}
+
 html[data-ytm-deck="1"] ytmusic-nav-bar #button-bar,
 html[data-ytm-deck="1"] ytmusic-nav-bar #right-content {
   display: flex !important;
@@ -313,7 +433,7 @@ html[data-ytm-deck="1"] ytmusic-nav-bar #right-content {
   gap: 10px !important;
   margin: 0 !important;
   padding: 0 4px !important;
-  z-index: 80 !important;
+  z-index: 5 !important;
   pointer-events: auto !important;
   visibility: visible !important;
   opacity: 1 !important;
@@ -1032,6 +1152,45 @@ html[data-ytm-deck="1"] #content {
   z-index: 1 !important;
 }
 
+/* Página activa (YTM pone [hidden] en la otra). Sin capas opacas ni pointer-events
+   propios: eso causaba fondo negro y bloqueaba scroll/clicks. */
+html[data-ytm-deck="1"] #content > ytmusic-browse-response:not([hidden]),
+html[data-ytm-deck="1"] #content > ytmusic-search-response:not([hidden]),
+html[data-ytm-deck="1"] #content > ytmusic-search-page:not([hidden]) {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  height: 100% !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+html[data-ytm-deck="1"] #content > ytmusic-browse-response[hidden],
+html[data-ytm-deck="1"] #content > ytmusic-search-response[hidden],
+html[data-ytm-deck="1"] #content > ytmusic-search-page[hidden] {
+  display: none !important;
+  flex: 0 0 0 !important;
+  height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+
+/* En búsqueda solo ocultar tabs de biblioteca residuales */
+html[data-ytm-deck="1"].ytm-deck-search ytmusic-tabs,
+html[data-ytm-deck="1"].ytm-deck-search ytmusic-tabs.stuck,
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-tabs,
+html[data-ytm-deck="1"] ytmusic-search-page ytmusic-tabs {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+}
+
 /* YTM desplaza #content cuando el guide está abierto */
 html[data-ytm-deck="1"] ytmusic-app-layout.guide-visible #content,
 html[data-ytm-deck="1"] ytmusic-app-layout[guide-visible] #content,
@@ -1043,10 +1202,12 @@ html[data-ytm-deck="1"] ytmusic-app-layout[guide-persistent-and-visible] #conten
 }
 
 html[data-ytm-deck="1"] ytmusic-browse-response,
-html[data-ytm-deck="1"] ytmusic-search-response {
+html[data-ytm-deck="1"] ytmusic-search-response,
+html[data-ytm-deck="1"] ytmusic-search-page {
   flex: 1 1 auto !important;
   min-width: 0 !important;
   min-height: 0 !important;
+  max-height: 100% !important;
   width: 100% !important;
   height: 100% !important;
   margin-left: 0 !important;
@@ -1055,14 +1216,121 @@ html[data-ytm-deck="1"] ytmusic-search-response {
   overflow-x: hidden !important;
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior: contain !important;
   padding-right: var(--deck-content-pad) !important;
-  padding-top: 4px !important;
+  padding-top: calc(var(--deck-search-h) + 14px) !important;
   padding-bottom: 16px !important;
   background: transparent !important;
   box-sizing: border-box !important;
   touch-action: none !important;
   user-select: none !important;
   -webkit-user-select: none !important;
+}
+
+/* Nested search: no segundo scroller/padding; solo no romper el overflow del padre */
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-tabbed-search-results-renderer,
+html[data-ytm-deck="1"] ytmusic-search-page ytmusic-tabbed-search-results-renderer,
+html[data-ytm-deck="1"] ytmusic-search-response > *,
+html[data-ytm-deck="1"] ytmusic-search-page > * {
+  max-width: 100% !important;
+  min-height: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Search: matar franja negra del header sticky nativo + chips Deck */
+html[data-ytm-deck="1"] ytmusic-search-response #header,
+html[data-ytm-deck="1"] ytmusic-search-page #header,
+html[data-ytm-deck="1"] ytmusic-tabbed-search-results-renderer #header,
+html[data-ytm-deck="1"] ytmusic-search-response .header,
+html[data-ytm-deck="1"] ytmusic-search-page .header,
+html[data-ytm-deck="1"] ytmusic-tabbed-search-results-renderer .header,
+html[data-ytm-deck="1"] ytmusic-search-response tp-yt-app-toolbar,
+html[data-ytm-deck="1"] ytmusic-search-page tp-yt-app-toolbar,
+html[data-ytm-deck="1"] ytmusic-tabbed-search-results-renderer tp-yt-app-toolbar {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 8 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  padding-top: 4px !important;
+  padding-bottom: 8px !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-chip-cloud-renderer,
+html[data-ytm-deck="1"] ytmusic-search-page ytmusic-chip-cloud-renderer,
+html[data-ytm-deck="1"] ytmusic-search-response yt-chip-cloud-renderer,
+html[data-ytm-deck="1"] ytmusic-search-page yt-chip-cloud-renderer,
+html[data-ytm-deck="1"] ytmusic-search-response .chip-cloud-renderer,
+html[data-ytm-deck="1"] ytmusic-search-page .chip-cloud-renderer {
+  position: relative !important;
+  z-index: 8 !important;
+  margin: 0 0 10px 0 !important;
+  padding: 4px 0 8px 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-chip-cloud-renderer #chips,
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-chip-cloud-renderer #scroll-container,
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-chip-cloud-renderer #container,
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-chip-cloud-renderer .chip-cloud-content,
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-chip-cloud-renderer .chips,
+html[data-ytm-deck="1"] ytmusic-search-response yt-chip-cloud-renderer #chips,
+html[data-ytm-deck="1"] ytmusic-search-response yt-chip-cloud-renderer #scroll-container {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  border: 0 !important;
+}
+
+/* Search chips (también yt-chip-*) con look Deck */
+html[data-ytm-deck="1"] ytmusic-search-response yt-chip-cloud-chip-renderer,
+html[data-ytm-deck="1"] ytmusic-search-page yt-chip-cloud-chip-renderer,
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-chip-cloud-chip-renderer,
+html[data-ytm-deck="1"] ytmusic-search-page ytmusic-chip-cloud-chip-renderer {
+  display: inline-flex !important;
+  align-items: center !important;
+  margin: 0 8px 8px 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-search-response yt-chip-cloud-chip-renderer a,
+html[data-ytm-deck="1"] ytmusic-search-response yt-chip-cloud-chip-renderer .yt-simple-endpoint,
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-chip-cloud-chip-renderer a.yt-simple-endpoint,
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-chip-cloud-chip-renderer .yt-simple-endpoint,
+html[data-ytm-deck="1"] ytmusic-search-response yt-chip-cloud-chip-renderer #chip-shape,
+html[data-ytm-deck="1"] ytmusic-search-response yt-chip-cloud-chip-renderer chip-shape-link {
+  position: static !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 44px !important;
+  padding: 8px 16px !important;
+  margin: 0 !important;
+  border-radius: var(--deck-radius-pill) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(var(--deck-accent-rgb), 0.22) !important;
+  box-shadow: none !important;
+  text-decoration: none !important;
+  color: var(--deck-text) !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-search-response yt-chip-cloud-chip-renderer[selected] a,
+html[data-ytm-deck="1"] ytmusic-search-response yt-chip-cloud-chip-renderer[aria-selected="true"] a,
+html[data-ytm-deck="1"] ytmusic-search-response yt-chip-cloud-chip-renderer.selected a,
+html[data-ytm-deck="1"] ytmusic-search-response ytmusic-chip-cloud-chip-renderer[selected] a.yt-simple-endpoint {
+  background: linear-gradient(135deg, rgba(var(--deck-accent-rgb), 0.45), rgba(var(--deck-chip-end-rgb), 0.32)) !important;
+  border: 1px solid rgba(var(--deck-accent-rgb), 0.32) !important;
 }
 
 html[data-ytm-deck="1"] ytmusic-carousel #items,
@@ -1117,7 +1385,8 @@ html[data-ytm-deck="1"] ytmusic-guide-entry-renderer #endpoint {
 }
 
 html[data-ytm-deck="1"] ytmusic-browse-response,
-html[data-ytm-deck="1"] ytmusic-search-response {
+html[data-ytm-deck="1"] ytmusic-search-response,
+html[data-ytm-deck="1"] ytmusic-search-page {
   touch-action: none !important;
 }
 
@@ -1128,16 +1397,37 @@ html[data-ytm-deck="1"] ytmusic-guide-entry-renderer .subtitle {
   -webkit-user-select: none !important;
 }
 
-/* Biblioteca: pestañas superiores (Mi biblioteca / Descargas / Subidas) */
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs,
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs#tabs,
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs.stuck {
+/* Tabs de biblioteca: solo CSS en <html> (no tocar hidden/display en el nodo YTM) */
+html[data-ytm-deck="1"]:not(.ytm-deck-library) ytmusic-tabs,
+html[data-ytm-deck="1"]:not(.ytm-deck-library) ytmusic-tabs.stuck,
+html[data-ytm-deck="1"]:not(.ytm-deck-library) ytmusic-browse-response ytmusic-tabs {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  height: 0 !important;
+  max-height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
+}
+
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs,
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs#tabs,
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs.stuck {
   display: block !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  opacity: 1 !important;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overflow: visible !important;
   position: relative !important;
   top: 0 !important;
   margin: 0 0 10px 0 !important;
   padding: 0 !important;
-  min-height: 44px !important;
   background: transparent !important;
   background-color: transparent !important;
   background-image: none !important;
@@ -1148,8 +1438,8 @@ html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs.stuck {
   transform: none !important;
 }
 
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs .tab-container,
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs #tabs.tab-container {
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs .tab-container,
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs #tabs.tab-container {
   display: flex !important;
   align-items: center !important;
   gap: 8px !important;
@@ -1160,8 +1450,8 @@ html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs #tabs.tab-container
   border: none !important;
 }
 
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs .tab,
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs yt-formatted-string.tab {
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs .tab,
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs yt-formatted-string.tab {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -1181,22 +1471,25 @@ html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs yt-formatted-string
   box-shadow: none !important;
 }
 
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs .tab.selected,
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs .tab[aria-selected="true"],
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs yt-formatted-string.tab.selected,
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs yt-formatted-string.tab[aria-selected="true"] {
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs .tab.selected,
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs .tab[aria-selected="true"],
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs yt-formatted-string.tab.selected,
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs yt-formatted-string.tab[aria-selected="true"] {
   background: linear-gradient(135deg, rgba(var(--deck-accent-rgb), 0.42), rgba(var(--deck-chip-end-rgb), 0.28)) !important;
   border: 1px solid rgba(var(--deck-accent-rgb), 0.28) !important;
   color: var(--deck-text) !important;
   -webkit-text-fill-color: var(--deck-text) !important;
 }
 
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs tp-yt-paper-tabs-selection-bar,
-html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-tabs .selection-bar {
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs tp-yt-paper-tabs-selection-bar,
+html[data-ytm-deck="1"].ytm-deck-library ytmusic-browse-response ytmusic-tabs .selection-bar {
   display: none !important;
 }
 
-html[data-ytm-deck="1"] ytmusic-browse-response .background-gradient {
+/* No forzar transparent en background-gradient del browse: ese nodo envuelve
+   el contenido y, en canal/artista, lleva el banner. Solo quitar la franja sticky. */
+html[data-ytm-deck="1"] ytmusic-browse-response > .background-gradient.stuck,
+html[data-ytm-deck="1"] ytmusic-browse-response > .browse-background.stuck {
   background: transparent !important;
   background-color: transparent !important;
   background-image: none !important;
@@ -1223,17 +1516,71 @@ html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-section-list-renderer {
   box-sizing: border-box !important;
 }
 
-/* Reducir hero fullbleed del home (no ocultar el resto del browse) */
-html[data-ytm-deck="1"] ytmusic-fullbleed-thumbnail-renderer {
-  max-height: 0 !important;
+/* Banner de artista/álbum: imagen de fondo (absolute), el contenido define la altura.
+   height:auto en fullbleed lo metía en el flujo y dejaba un hueco negro abajo. */
+html[data-ytm-deck="1"] ytmusic-immersive-header-renderer,
+html[data-ytm-deck="1"] ytmusic-visual-header-renderer,
+html[data-ytm-deck="1"] ytmusic-detail-header-renderer {
+  position: relative !important;
+  display: block !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: hidden !important;
+  margin: 0 0 12px 0 !important;
+  background: transparent !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-immersive-header-renderer ytmusic-fullbleed-thumbnail-renderer,
+html[data-ytm-deck="1"] ytmusic-visual-header-renderer ytmusic-fullbleed-thumbnail-renderer,
+html[data-ytm-deck="1"] ytmusic-detail-header-renderer ytmusic-fullbleed-thumbnail-renderer,
+html[data-ytm-deck="1"] ytmusic-immersive-header-renderer .background-thumbnail,
+html[data-ytm-deck="1"] ytmusic-visual-header-renderer .background-thumbnail,
+html[data-ytm-deck="1"] ytmusic-immersive-header-renderer .image,
+html[data-ytm-deck="1"] ytmusic-visual-header-renderer #thumbnail {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
   margin: 0 !important;
   padding: 0 !important;
   overflow: hidden !important;
-  opacity: 0 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
   pointer-events: none !important;
+  z-index: 0 !important;
 }
 
-/* Quitar margen interno que YTM deja para el guide persistente */
+html[data-ytm-deck="1"] ytmusic-immersive-header-renderer ytmusic-fullbleed-thumbnail-renderer img,
+html[data-ytm-deck="1"] ytmusic-visual-header-renderer ytmusic-fullbleed-thumbnail-renderer img,
+html[data-ytm-deck="1"] ytmusic-detail-header-renderer ytmusic-fullbleed-thumbnail-renderer img,
+html[data-ytm-deck="1"] ytmusic-immersive-header-renderer yt-img-shadow,
+html[data-ytm-deck="1"] ytmusic-visual-header-renderer yt-img-shadow,
+html[data-ytm-deck="1"] ytmusic-immersive-header-renderer yt-img-shadow img,
+html[data-ytm-deck="1"] ytmusic-visual-header-renderer yt-img-shadow img {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  object-fit: cover !important;
+  object-position: center top !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+}
+
+html[data-ytm-deck="1"] ytmusic-immersive-header-renderer > *:not(ytmusic-fullbleed-thumbnail-renderer),
+html[data-ytm-deck="1"] ytmusic-visual-header-renderer > *:not(ytmusic-fullbleed-thumbnail-renderer),
+html[data-ytm-deck="1"] ytmusic-detail-header-renderer > *:not(ytmusic-fullbleed-thumbnail-renderer),
+html[data-ytm-deck="1"] ytmusic-immersive-header-renderer #content,
+html[data-ytm-deck="1"] ytmusic-visual-header-renderer #content,
+html[data-ytm-deck="1"] ytmusic-immersive-header-renderer .content,
+html[data-ytm-deck="1"] ytmusic-visual-header-renderer .content {
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+/* Fullbleed suelto (p. ej. home): no forzar height:auto global */
 html[data-ytm-deck="1"] ytmusic-browse-response > *,
 html[data-ytm-deck="1"] ytmusic-browse-response > div,
 html[data-ytm-deck="1"] ytmusic-browse-response ytmusic-single-column-browse-results-renderer,
@@ -3644,6 +3991,8 @@ html[data-ytm-deck="1"].ytm-deck-steam ytmusic-browse-response,
 html[data-ytm-deck="1"].ytm-deck-touch ytmusic-browse-response,
 html[data-ytm-deck="1"].ytm-deck-steam ytmusic-search-response,
 html[data-ytm-deck="1"].ytm-deck-touch ytmusic-search-response,
+html[data-ytm-deck="1"].ytm-deck-steam ytmusic-search-page,
+html[data-ytm-deck="1"].ytm-deck-touch ytmusic-search-page,
 html[data-ytm-deck="1"].ytm-deck-steam #side-panel ytmusic-queue-tab,
 html[data-ytm-deck="1"].ytm-deck-touch #side-panel ytmusic-queue-tab,
 html[data-ytm-deck="1"].ytm-deck-steam #side-panel ytmusic-tab-renderer,

@@ -148,6 +148,88 @@ PROBE_JS = """
 })()
 """
 
+# OSK ligero para subframes (login Google) + frame principal.
+# Login Google es cross-origin: no puede usar bridge; postMessage al top.
+INJECT_OSK_JS = """
+(function() {
+  if (window.__YTM_DECK_OSK_BOUND__) return;
+  window.__YTM_DECK_OSK_BOUND__ = 1;
+
+  function isText(el) {
+    if (!el || el.nodeType !== 1) return false;
+    var tag = (el.tagName || '').toLowerCase();
+    if (tag === 'textarea') return true;
+    if (tag === 'input') {
+      var type = (el.getAttribute('type') || 'text').toLowerCase();
+      return ['button','checkbox','radio','submit','reset','file','image','range','color','hidden'].indexOf(type) < 0;
+    }
+    return !!el.isContentEditable;
+  }
+
+  function textFromEvent(ev) {
+    var path = ev.composedPath ? ev.composedPath() : [ev.target];
+    for (var i = 0; i < path.length; i++) {
+      if (isText(path[i])) return path[i];
+    }
+    return isText(ev.target) ? ev.target : null;
+  }
+
+  function openOskHere() {
+    try {
+      if (window.bridge && typeof window.bridge.showKeyboard === 'function') {
+        window.bridge.showKeyboard();
+        return true;
+      }
+    } catch (_) {}
+    try {
+      window.open('steam://open/keyboard?XPosition=0&YPosition=0&Width=0&Height=0&Mode=0');
+      return true;
+    } catch (_) {}
+    return false;
+  }
+
+  function requestOsk() {
+    // Frame hijo (login Google): pedir al top (tiene QWebChannel / bridge).
+    try {
+      if (window.top && window.top !== window) {
+        window.top.postMessage({ __ytmDeckOsk: 1 }, '*');
+      }
+    } catch (_) {}
+    try {
+      var w = window.top || window;
+      if (w !== window && w.bridge && typeof w.bridge.showKeyboard === 'function') {
+        w.bridge.showKeyboard();
+        return;
+      }
+    } catch (_) {}
+    openOskHere();
+  }
+
+  // Top frame: escuchar pedidos OSK desde iframes de login.
+  if (window === window.top) {
+    window.addEventListener('message', function(ev) {
+      try {
+        if (!ev || !ev.data || !ev.data.__ytmDeckOsk) return;
+      } catch (_) {
+        return;
+      }
+      openOskHere();
+    }, true);
+  }
+
+  document.addEventListener('focusin', function(ev) {
+    if (isText(ev.target)) requestOsk();
+  }, true);
+
+  document.addEventListener('pointerup', function(ev) {
+    var el = textFromEvent(ev);
+    if (!el) return;
+    try { el.focus(); } catch (_) {}
+    requestOsk();
+  }, true);
+})();
+"""
+
 
 def _load_qwebchannel_js() -> str:
     """Lee qwebchannel.js del recurso Qt (sin <script src>, compatible con Trusted Types)."""
@@ -234,7 +316,7 @@ class DeckInjector:
             + steam_hint
             + INIT_WEBCHANNEL_JS
             + "\n"
-            "window.__YTM_DECK_BRIDGE_REV_TARGET__ = 33;\n"
+            "window.__YTM_DECK_BRIDGE_REV_TARGET__ = 68;\n"
             "if (!window.YTMDeck || window.__YTM_DECK_BRIDGE_REV__ !== window.__YTM_DECK_BRIDGE_REV_TARGET__) {\n"
             + self._bridge
             + "\n"
@@ -254,6 +336,9 @@ class DeckInjector:
     def probe_call(self) -> str:
         return PROBE_JS
 
+    def osk_call(self) -> str:
+        return INJECT_OSK_JS
+
     def profile_script_source(self) -> str:
         """Solo CSS + flags; QWebChannel se inyecta después vía runJavaScript.
 
@@ -269,3 +354,14 @@ class DeckInjector:
         ):
             touch_hint = "window.__YTM_DECK_TOUCH__ = 1; window.__YTM_DECK_STEAM__ = 1;\n"
         return touch_hint + self._css_payload_js() + INJECT_CSS_JS
+
+    def profile_osk_script_source(self) -> str:
+        touch_hint = ""
+        if (
+            os.environ.get("YTMUSIC_DECKY_STEAM", "").strip().lower() in ("1", "true", "yes")
+            or os.environ.get("YTMUSIC_DECKY_HIDE_CURSOR", "").strip().lower() in ("1", "true", "yes")
+            or bool(os.environ.get("SteamGameId"))
+            or getattr(sys, "frozen", False)
+        ):
+            touch_hint = "window.__YTM_DECK_TOUCH__ = 1; window.__YTM_DECK_STEAM__ = 1;\n"
+        return touch_hint + INJECT_OSK_JS

@@ -1387,12 +1387,52 @@ window.YTMDeck = (function () {
       });
     }
 
+    // No tocar .background-gradient / .gradient-container: llevan el banner de artista.
     qsa(
-      "ytmusic-player-page, #player-page, ytmusic-app-layout, #content, ytmusic-browse-response, ytmusic-browse-response ytmusic-tabs, .background-gradient, .browse-background, .gradient-container"
+      "ytmusic-player-page, #player-page, ytmusic-app-layout, #content, ytmusic-browse-response, ytmusic-browse-response ytmusic-tabs"
     ).forEach((el) => {
       el.style.setProperty("background", "transparent", "important");
       el.style.setProperty("background-color", "transparent", "important");
       el.style.setProperty("background-image", "none", "important");
+    });
+
+    // Limpiar overrides previos del banner de artista; no reactivar fullbleed de Home.
+    qsa(".background-gradient, .browse-background, .gradient-container").forEach((el) => {
+      if (el.closest("ytmusic-immersive-header-renderer, ytmusic-visual-header-renderer, ytmusic-detail-header-renderer")) {
+        el.style.removeProperty("background");
+        el.style.removeProperty("background-color");
+        el.style.removeProperty("background-image");
+        return;
+      }
+      // Home: asegurar sin imagen/lavado de fondo YTM.
+      if (el.matches(".background-gradient, .browse-background")) {
+        el.style.setProperty("background-image", "none", "important");
+        el.style.setProperty("background", "transparent", "important");
+      }
+    });
+    qsa("ytmusic-fullbleed-thumbnail-renderer").forEach((el) => {
+      if (el.closest("ytmusic-immersive-header-renderer, ytmusic-visual-header-renderer, ytmusic-detail-header-renderer")) {
+        el.style.removeProperty("display");
+        el.style.removeProperty("opacity");
+        el.style.removeProperty("max-height");
+        el.style.removeProperty("height");
+        el.style.removeProperty("visibility");
+        return;
+      }
+      // Fullbleed suelto = fondo decorativo de Home (no portadas de shelf).
+      el.style.setProperty("display", "none", "important");
+      el.style.setProperty("opacity", "0", "important");
+      el.style.setProperty("visibility", "hidden", "important");
+      el.style.setProperty("max-height", "0", "important");
+      el.style.setProperty("height", "0", "important");
+      el.style.setProperty("overflow", "hidden", "important");
+      el.style.setProperty("pointer-events", "none", "important");
+    });
+    qsa(
+      "ytmusic-immersive-header-renderer, ytmusic-visual-header-renderer, ytmusic-detail-header-renderer"
+    ).forEach((el) => {
+      el.style.removeProperty("min-height");
+      el.style.removeProperty("height");
     });
 
     const barStart = getComputedStyle(document.documentElement).getPropertyValue("--deck-bar-start-rgb").trim();
@@ -3149,6 +3189,7 @@ window.YTMDeck = (function () {
     root.style.setProperty("--deck-gap", deckPx(10, scale));
     root.style.setProperty("--deck-col-gap", deckPx(6, scale));
     root.style.setProperty("--deck-content-pad", deckPx(12, scale));
+    root.style.setProperty("--deck-search-h", deckPx(52, scale));
     root.style.setProperty("--deck-volume-slider-w", wide ? "140px" : deckPx(152, scale));
     root.style.setProperty(
       "--deck-media-text-max",
@@ -4289,6 +4330,26 @@ window.YTMDeck = (function () {
     return bestOverflow > 2 ? best : null;
   }
 
+  function ensureMainContentScroller(el) {
+    if (!el || !(el instanceof Element)) return null;
+    const tag = (el.tagName || "").toLowerCase();
+    const isMain =
+      tag === "ytmusic-browse-response" ||
+      tag === "ytmusic-search-response" ||
+      tag === "ytmusic-search-page" ||
+      tag === "ytmusic-tabbed-search-results-renderer" ||
+      el.id === "content";
+    if (!isMain) return null;
+    el.style.setProperty("overflow-x", "hidden", "important");
+    el.style.setProperty("overflow-y", "auto", "important");
+    el.style.setProperty("max-height", "100%", "important");
+    el.style.setProperty("min-height", "0", "important");
+    el.style.setProperty("-webkit-overflow-scrolling", "touch", "important");
+    if (isVerticallyScrollable(el)) return el;
+    // Aún sin overflow medible (contenido corto / layout pendiente): devolver host listo.
+    return el;
+  }
+
   function bindGuideTouchScroll() {
     if (window.__YTM_DECK_GUIDE_SCROLL_BOUND__) return;
     window.__YTM_DECK_GUIDE_SCROLL_BOUND__ = true;
@@ -4569,6 +4630,63 @@ window.YTMDeck = (function () {
     return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
   }
 
+  function isDeckOskTextTarget(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const tag = (el.tagName || "").toLowerCase();
+    if (tag === "textarea") return true;
+    if (tag === "input") {
+      const type = (el.getAttribute("type") || "text").toLowerCase();
+      return (
+        ["button", "checkbox", "radio", "submit", "reset", "file", "image", "range", "color", "hidden"].indexOf(
+          type
+        ) < 0
+      );
+    }
+    return !!el.isContentEditable;
+  }
+
+  function requestSteamOsk() {
+    try {
+      if (window.bridge && typeof window.bridge.showKeyboard === "function") {
+        window.bridge.showKeyboard();
+        return true;
+      }
+    } catch (_) {
+      /* noop */
+    }
+    return false;
+  }
+
+  function bindSteamOsk() {
+    if (window.__YTM_DECK_OSK_RELAY__) return;
+    window.__YTM_DECK_OSK_RELAY__ = true;
+
+    // Login Google (iframe): el OSK script hace postMessage; aquí se abre el teclado.
+    window.addEventListener(
+      "message",
+      (ev) => {
+        try {
+          if (!ev?.data?.__ytmDeckOsk) return;
+        } catch (_) {
+          return;
+        }
+        requestSteamOsk();
+      },
+      true
+    );
+
+    // Cualquier input en el frame principal (búsqueda, renombrar lista, etc.).
+    document.addEventListener(
+      "focusin",
+      (event) => {
+        const path = event.composedPath?.() || [event.target];
+        if (!path.some((n) => isDeckOskTextTarget(n))) return;
+        requestSteamOsk();
+      },
+      true
+    );
+  }
+
   function isQueueItemTarget(target) {
     return !!target?.closest?.(
       "#side-panel ytmusic-playlist-panel-video-renderer, #side-panel ytmusic-queue-item, #side-panel ytmusic-player-queue-item"
@@ -4689,8 +4807,14 @@ window.YTMDeck = (function () {
       if (guideScroller) return guideScroller;
     }
 
-    const browse = qs("ytmusic-browse-response, ytmusic-search-response");
-    if (browse && browse.scrollHeight > browse.clientHeight + 4) return browse;
+    const browse = qs(
+      "ytmusic-browse-response, ytmusic-search-response, ytmusic-search-page"
+    );
+    if (browse) {
+      const forced = ensureMainContentScroller(browse);
+      if (forced && forced.scrollHeight > forced.clientHeight + 4) return forced;
+      if (browse.scrollHeight > browse.clientHeight + 4) return browse;
+    }
 
     return qs("#content") || document.scrollingElement || document.documentElement;
   }
@@ -4939,17 +5063,32 @@ window.YTMDeck = (function () {
       const browse = findDeckHost(target, [
         "ytmusic-browse-response",
         "ytmusic-search-response",
+        "ytmusic-search-page",
+        "ytmusic-tabbed-search-results-renderer",
         "ytmusic-section-list-renderer",
       ]);
       if (browse) {
-        const scroller = pickBestScroller([browse, findDeckHost(target, ["#content"])]);
+        const content = findDeckHost(target, ["#content"]);
+        const scroller =
+          pickBestScroller([
+            findDeckHost(target, ["ytmusic-search-response, ytmusic-search-page, ytmusic-browse-response"]),
+            browse,
+            content,
+            findScrollableAncestor(target),
+          ]) || ensureMainContentScroller(browse) || ensureMainContentScroller(content);
         if (scroller) return { scroller, item: null };
       }
 
       const content = findDeckHost(target, ["#content"]);
-      if (content) return { scroller: content, item: null };
+      if (content) {
+        const scroller =
+          pickBestScroller([content, findScrollableAncestor(target)]) ||
+          ensureMainContentScroller(content);
+        if (scroller) return { scroller, item: null };
+      }
 
-      return null;
+      const fallback = findScrollableAncestor(target);
+      return fallback ? { scroller: fallback, item: null } : null;
     };
 
     document.addEventListener(
@@ -5181,6 +5320,24 @@ window.YTMDeck = (function () {
 
     document.addEventListener("pointerup", finishGesture, true);
     document.addEventListener("pointercancel", finishGesture, true);
+
+    document.addEventListener(
+      "wheel",
+      (event) => {
+        if (!document.documentElement.hasAttribute("data-ytm-deck")) return;
+        if (isGuideScrollTarget(event.target, event.clientX, event.clientY)) return;
+        if (isScrollControl(event.target)) return;
+        const vertical = resolveVerticalScroller(event.target);
+        const scroller = vertical?.scroller;
+        if (!scroller) return;
+        // Forzar overflow utilizable (search a veces crece sin scroller nativo).
+        ensureMainContentScroller(scroller);
+        if (!isVerticallyScrollable(scroller) && Math.abs(event.deltaY) < 0.5) return;
+        event.preventDefault();
+        scroller.scrollTop += event.deltaY;
+      },
+      { capture: true, passive: false }
+    );
 
     registerTouchReset(() => {
       clearGesture();
@@ -5653,7 +5810,14 @@ window.YTMDeck = (function () {
   }
 
   function bindPlayerToggle() {
-    if (window.__YTM_DECK_TOGGLE_V4__) return;
+    // Abort listeners de revs experimentales del buscador (si quedaron en la misma sesión).
+    try {
+      window.__YTM_DECK_TOGGLE_ABORT__?.abort?.();
+    } catch (_) {
+      /* noop */
+    }
+    if (window.__YTM_DECK_TOGGLE_V4_STABLE__) return;
+    window.__YTM_DECK_TOGGLE_V4_STABLE__ = true;
     window.__YTM_DECK_TOGGLE_V4__ = true;
 
     let toggleWasOpen = null;
@@ -5746,8 +5910,8 @@ window.YTMDeck = (function () {
   }
 
   function fixChips() {
-    qsa("ytmusic-chip-cloud-chip-renderer").forEach((chip) => {
-      const text = qs("yt-formatted-string.text, .text", chip);
+    qsa("ytmusic-chip-cloud-chip-renderer, yt-chip-cloud-chip-renderer").forEach((chip) => {
+      const text = qs("yt-formatted-string.text, .text, #text", chip);
       if (text) {
         text.style.fontSize = "16px";
         text.style.color = "var(--deck-text, #ffffff)";
@@ -6027,25 +6191,318 @@ window.YTMDeck = (function () {
     });
   }
 
-  function fixLibraryTabs() {
-    qsa("ytmusic-browse-response ytmusic-tabs").forEach((tabs) => {
-      tabs.style.setProperty("background", "transparent", "important");
-      tabs.style.setProperty("background-color", "transparent", "important");
-      tabs.style.setProperty("box-shadow", "none", "important");
-      tabs.style.setProperty("position", "relative", "important");
-      tabs.style.setProperty("top", "0", "important");
-      tabs.style.setProperty("margin-top", "0", "important");
-      tabs.style.setProperty("margin-bottom", "10px", "important");
-      tabs.style.setProperty("padding-top", "0", "important");
-      tabs.style.setProperty("z-index", "1", "important");
-      tabs.style.setProperty("transform", "none", "important");
-    });
+  let lastGuideNav = "other";
+  let lastPageChromeMode = "";
+  let libraryNavLockUntil = 0;
+  let librarySyncGen = 0;
 
-    qsa("ytmusic-browse-response .background-gradient").forEach((el) => {
-      el.style.setProperty("background", "transparent", "important");
-      el.style.setProperty("background-color", "transparent", "important");
-      el.style.setProperty("background-image", "none", "important");
+  function isOnSearchUrl() {
+    return /\/search/.test(location.pathname || "");
+  }
+
+  // Solo para clase (tabs). Visibilidad browse/search la resuelve YTM con [hidden].
+  function isDeckSearchActive() {
+    if (isOnSearchUrl()) return true;
+    if (lastGuideNav === "search") return true;
+    const search = qs("ytmusic-search-response:not([hidden]), ytmusic-search-page:not([hidden])");
+    if (!search) return false;
+    const browse = qs("ytmusic-browse-response:not([hidden])");
+    // Search activo solo si browse no está también visible (evita pelear capas).
+    return !browse;
+  }
+
+  function guideEntrySignal(entry) {
+    if (!entry) return "";
+    const link = qs("a.yt-simple-endpoint, a", entry);
+    return `${link?.getAttribute("href") || ""} ${entry.textContent || ""}`;
+  }
+
+  function isGuideEntrySelected(entry) {
+    return (
+      entry.hasAttribute("selected") ||
+      entry.getAttribute("aria-selected") === "true" ||
+      entry.classList.contains("iron-selected") ||
+      !!qs(
+        "a.iron-selected, tp-yt-paper-item.iron-selected, .yt-simple-endpoint.iron-selected",
+        entry
+      )
+    );
+  }
+
+  function classifyGuideSignal(signal) {
+    const s = String(signal || "").toLowerCase();
+    if (/\/search|buscar|\bsearch\b/.test(s)) return "search";
+    if (/femusic_liked|femusic_library|\/library|\bbiblioteca\b|\blibrary\b/.test(s)) return "library";
+    if (/\binicio\b|\bhome\b|femusic_home/.test(s) || /explor|explore|charts|moods/.test(s)) {
+      return "home";
+    }
+    return "other";
+  }
+
+  function selectedGuideKind() {
+    for (const entry of qsa("ytmusic-guide-entry-renderer")) {
+      if (!isGuideEntrySelected(entry)) continue;
+      return classifyGuideSignal(guideEntrySignal(entry));
+    }
+    return null;
+  }
+
+  function isLibraryTabsEl(tabs) {
+    if (!tabs) return false;
+    const text = (tabs.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (text.length < 8) return false;
+    if (!/(biblioteca|library)/.test(text)) return false;
+    return /(youtube music|subidas|uploads|descargas|downloads)/.test(text);
+  }
+
+  function findLibraryTabsEl() {
+    for (const tabs of qsa("ytmusic-browse-response ytmusic-tabs, ytmusic-tabs")) {
+      if (isLibraryTabsEl(tabs)) return tabs;
+    }
+    return null;
+  }
+
+  function hrefLooksLikeLibrary() {
+    return /\/library|FEmusic_liked|FEmusic_library/i.test(location.href || "");
+  }
+
+  // Misma señal visual que los chips: contenido del browse.
+  function browseContentSignal() {
+    const browse = qs("ytmusic-browse-response");
+    if (!browse) return null;
+    return (
+      qs(
+        "ytmusic-chip-cloud-renderer, ytmusic-section-list-renderer, ytmusic-grid-renderer, " +
+          "ytmusic-shelf-renderer, ytmusic-two-row-item-renderer",
+        browse
+      ) || null
+    );
+  }
+
+  function navLockActive() {
+    return performance.now() < libraryNavLockUntil;
+  }
+
+  function wantsLibraryPage() {
+    if (isDeckSearchActive()) return false;
+    // Click de guia manda; no dejar que la URL antigua vuelva a activar biblioteca.
+    if (lastGuideNav === "library") return true;
+    if (lastGuideNav === "home" || lastGuideNav === "search" || lastGuideNav === "other") {
+      return false;
+    }
+    return hrefLooksLikeLibrary();
+  }
+
+  // Barra solo con tabs reales de biblioteca + contenido (misma ventana que chips).
+  function libraryChromeReady() {
+    if (!wantsLibraryPage()) return false;
+    if (!isLibraryTabsEl(findLibraryTabsEl())) return false;
+    return !!browseContentSignal();
+  }
+
+  function isLibraryPageActive() {
+    return libraryChromeReady();
+  }
+
+  function injectHostStyleOnce(host, attr, cssText) {
+    const root = host?.shadowRoot;
+    if (!root) return false;
+    if (root.querySelector(`[${attr}]`)) return true;
+    const style = document.createElement("style");
+    style.setAttribute(attr, "1");
+    style.textContent = cssText;
+    root.appendChild(style);
+    return true;
+  }
+
+  function cancelLibraryChromeSync() {
+    librarySyncGen += 1;
+  }
+
+  function scheduleLibraryChromeSync(maxMs) {
+    cancelLibraryChromeSync();
+    const gen = librarySyncGen;
+    const end = performance.now() + (maxMs || 1200);
+    const tick = () => {
+      if (gen !== librarySyncGen) return;
+      syncPageChrome(true);
+      if (!wantsLibraryPage() || libraryChromeReady() || performance.now() >= end) return;
+      requestAnimationFrame(tick);
+    };
+    // Sync ligero por raf + timeouts (sin MutationObserver en todo el browse).
+    syncPageChrome(true);
+    requestAnimationFrame(tick);
+    [32, 80, 160, 320, 560, 900].forEach((ms) => {
+      setTimeout(() => {
+        if (gen !== librarySyncGen) return;
+        syncPageChrome(true);
+      }, ms);
     });
+  }
+
+  function setLibraryChromeVisible(visible) {
+    document.documentElement.classList.toggle("ytm-deck-library", !!visible);
+    if (visible) styleLibraryTabsOnce(findLibraryTabsEl());
+  }
+
+  function clearLegacyLibraryTabMutations() {
+    qsa("ytmusic-tabs").forEach((tabs) => {
+      tabs.classList.remove("deck-lib-tab-hidden");
+      if (tabs.hasAttribute("hidden")) tabs.removeAttribute("hidden");
+      tabs.style.removeProperty("display");
+      tabs.style.removeProperty("visibility");
+      tabs.style.removeProperty("opacity");
+      tabs.style.removeProperty("height");
+      tabs.style.removeProperty("max-height");
+    });
+  }
+
+  function styleLibraryTabsOnce(tabs) {
+    if (!tabs || tabs.dataset.deckLibStyled === "1") return;
+    tabs.dataset.deckLibStyled = "1";
+    tabs.classList.remove("stuck");
+    injectHostStyleOnce(
+      tabs,
+      "data-deck-library-tabs",
+      `
+      :host, #tabs, .tab-container, #container, tp-yt-paper-tabs {
+        background: transparent !important;
+        box-shadow: none !important;
+      }
+      tp-yt-paper-tabs-selection-bar, .selection-bar { display: none !important; }
+      `
+    );
+  }
+
+  function styleSearchResultsChromeOnce() {
+    const roots = qsa(
+      "ytmusic-search-response, ytmusic-search-page, ytmusic-tabbed-search-results-renderer"
+    );
+    roots.forEach((root) => {
+      if (root.dataset.deckSearchChrome === "1") return;
+      root.dataset.deckSearchChrome = "1";
+      injectHostStyleOnce(
+        root,
+        "data-deck-search-header",
+        `
+        :host, #header, .header, #chips, #container, tp-yt-app-toolbar {
+          background: transparent !important;
+          background-color: transparent !important;
+          box-shadow: none !important;
+          border: 0 !important;
+        }
+        `
+      );
+      qsa("ytmusic-chip-cloud-renderer, yt-chip-cloud-renderer", root).forEach((cloud) => {
+        injectHostStyleOnce(
+          cloud,
+          "data-deck-search-chips",
+          `
+          :host, #chips, #scroll-container, #container, .chip-cloud-content, .chips, #header, .header {
+            background: transparent !important;
+            box-shadow: none !important;
+            border: 0 !important;
+          }
+          `
+        );
+      });
+    });
+  }
+
+  function syncPageChrome(force) {
+    const onSearch = isDeckSearchActive();
+    const wantsLib = wantsLibraryPage();
+    if (!window.__YTM_DECK_LIB_LEGACY_CLEARED__) {
+      clearLegacyLibraryTabMutations();
+      window.__YTM_DECK_LIB_LEGACY_CLEARED__ = true;
+    }
+    const onLibrary = libraryChromeReady();
+    const mode = onSearch ? "search" : onLibrary ? "library" : wantsLib ? "library-pending" : "other";
+
+    document.documentElement.classList.toggle("ytm-deck-search", onSearch);
+    document.documentElement.classList.remove("ytm-deck-browse-ready");
+
+    // Al salir, fuerza ocultar aunque el DOM aún tenga tabs residuales.
+    if (!wantsLib) {
+      setLibraryChromeVisible(false);
+      cancelLibraryChromeSync();
+    } else {
+      setLibraryChromeVisible(onLibrary);
+      if (onLibrary) cancelLibraryChromeSync();
+    }
+
+    if (!force && mode === lastPageChromeMode) {
+      if (onSearch) styleSearchResultsChromeOnce();
+      return;
+    }
+    lastPageChromeMode = mode;
+
+    if (onSearch) styleSearchResultsChromeOnce();
+  }
+
+  function fixLibraryTabs() {
+    syncPageChrome(false);
+  }
+
+  function bindGuideNavTracking() {
+    if (window.__YTM_DECK_GUIDE_NAV_TRACK__) return;
+    window.__YTM_DECK_GUIDE_NAV_TRACK__ = true;
+
+    if (hrefLooksLikeLibrary()) lastGuideNav = "library";
+
+    const mark = (target) => {
+      const entry = target?.closest?.("ytmusic-guide-entry-renderer");
+      if (!entry) return;
+      const next = classifyGuideSignal(guideEntrySignal(entry));
+      if (next === "other") return;
+      lastGuideNav = next;
+      // Bloquea que yt-navigate-* restaure estado por URL vieja durante la transición.
+      libraryNavLockUntil = performance.now() + 1500;
+
+      if (lastGuideNav === "library") {
+        setLibraryChromeVisible(false);
+        scheduleLibraryChromeSync(1400);
+      } else if (lastGuideNav === "home" || lastGuideNav === "search") {
+        cancelLibraryChromeSync();
+        setLibraryChromeVisible(false);
+      }
+      syncPageChrome(true);
+    };
+
+    document.addEventListener("click", (event) => mark(event.target), true);
+
+    const onNavStart = () => {
+      // Si el click ya dijo "salir", oculta al instante al iniciar navegación.
+      if (lastGuideNav !== "library") {
+        setLibraryChromeVisible(false);
+        return;
+      }
+      // Entrando a biblioteca: mantiene oculta hasta tabs reales + chips.
+      setLibraryChromeVisible(false);
+    };
+
+    const onNavFinish = () => {
+      if (!navLockActive()) {
+        if (hrefLooksLikeLibrary()) lastGuideNav = "library";
+        else if (/\/search/.test(location.pathname || "")) lastGuideNav = "search";
+        else if (selectedGuideKind() === "home") lastGuideNav = "home";
+        else if (!hrefLooksLikeLibrary() && lastGuideNav === "library") {
+          lastGuideNav = selectedGuideKind() || "other";
+        }
+      } else if (lastGuideNav !== "library" && !hrefLooksLikeLibrary()) {
+        // Lock de salida ya confirmado por URL nueva.
+        libraryNavLockUntil = 0;
+      }
+
+      requestAnimationFrame(() => {
+        syncPageChrome(true);
+        if (wantsLibraryPage() && !libraryChromeReady()) scheduleLibraryChromeSync(1400);
+      });
+    };
+
+    window.addEventListener("yt-navigate-start", onNavStart, true);
+    window.addEventListener("yt-navigate-finish", onNavFinish, true);
+    window.addEventListener("popstate", onNavFinish, true);
   }
 
   function fixContentOffset() {
@@ -6091,7 +6548,6 @@ window.YTMDeck = (function () {
       );
       fixShelfButtonLayout(browse);
     }
-    fixLibraryTabs();
     fixCarouselText();
     const layout = qs("ytmusic-app-layout");
     if (layout) {
@@ -6944,12 +7400,214 @@ window.YTMDeck = (function () {
     });
   }
 
+  function injectSearchBoxShadowStyle(box) {
+    if (!box || (box.tagName || "").toLowerCase() !== "ytmusic-search-box") return false;
+    const root = box.shadowRoot;
+    if (!root) return false;
+    const version = "1";
+    let style = root.querySelector("[data-deck-search-style]");
+    if (!style) {
+      style = document.createElement("style");
+      style.setAttribute("data-deck-search-style", version);
+      root.appendChild(style);
+    } else if (style.getAttribute("data-deck-search-style") !== version) {
+      style.setAttribute("data-deck-search-style", version);
+    }
+    style.textContent = `
+      :host {
+        display: block !important;
+        width: 100% !important;
+        max-width: none !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        background: transparent !important;
+        color: var(--deck-text, #fff) !important;
+      }
+      :host([opened]) {
+        overflow: hidden !important;
+        border-radius: 12px !important;
+        background: rgba(18, 16, 24, 0.97) !important;
+      }
+      .search-box,
+      #container,
+      form,
+      div.search-box {
+        display: flex !important;
+        align-items: center !important;
+        width: 100% !important;
+        max-width: none !important;
+        min-width: 0 !important;
+        height: var(--deck-search-h, 52px) !important;
+        min-height: var(--deck-search-h, 52px) !important;
+        box-sizing: border-box !important;
+        margin: 0 !important;
+        padding: 0 12px !important;
+        border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.1) !important;
+      }
+      :host([opened]) .search-box,
+      :host([opened]) div.search-box {
+        border-radius: 12px 12px 0 0 !important;
+        background: transparent !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+      }
+      input,
+      #input,
+      input.ytmusic-search-box {
+        flex: 1 1 auto !important;
+        width: 100% !important;
+        max-width: none !important;
+        min-width: 0 !important;
+        font-size: 18px !important;
+        color: var(--deck-text, #fff) !important;
+        background: transparent !important;
+        border: 0 !important;
+        outline: none !important;
+        -webkit-user-select: text !important;
+        user-select: text !important;
+      }
+      #placeholder {
+        color: rgba(255, 255, 255, 0.45) !important;
+        max-width: none !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+      }
+      /* Sugerencias completas, con look Deck (no recortar a franja negra) */
+      #suggestions,
+      #suggestion-list,
+      ytmusic-search-suggestions-section,
+      .suggestions {
+        display: block !important;
+        width: 100% !important;
+        max-width: none !important;
+        max-height: min(48vh, 380px) !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        margin: 0 !important;
+        padding: 6px 0 !important;
+        background: rgba(14, 12, 18, 0.98) !important;
+        border: 0 !important;
+        box-sizing: border-box !important;
+      }
+      ytmusic-search-suggestion,
+      .suggestion {
+        display: flex !important;
+        align-items: center !important;
+        min-height: 48px !important;
+        padding: 10px 14px !important;
+        color: var(--deck-text, #fff) !important;
+        box-sizing: border-box !important;
+      }
+      ytmusic-search-suggestion:hover,
+      ytmusic-search-suggestion[selected],
+      .suggestion:hover {
+        background: rgba(255, 255, 255, 0.08) !important;
+      }
+      ytmusic-search-suggestion yt-formatted-string,
+      ytmusic-search-suggestion .title,
+      .suggestion .title {
+        color: var(--deck-text, #fff) !important;
+        font-size: 16px !important;
+      }
+      tp-yt-iron-icon,
+      yt-icon {
+        color: rgba(255, 255, 255, 0.72) !important;
+        fill: currentColor !important;
+      }
+    `;
+    return true;
+  }
+
+  function ensureDeckSearch() {
+    // Solo mueve/estilo el search nativo. No toca el reproductor ni hace location/href.
+    const layout = qs("ytmusic-app-layout") || document.body;
+    if (!layout) return;
+
+    let host = qs(".deck-search-host", layout) || qs(".deck-search-host");
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "deck-search-host";
+      layout.appendChild(host);
+    } else if (host.parentElement !== layout) {
+      layout.appendChild(host);
+    }
+
+    const box = qs("ytmusic-search-box");
+    if (!box) return;
+
+    if (box.parentElement !== host) {
+      host.appendChild(box);
+    }
+    box.classList.add("deck-search-relocated");
+    box.style.setProperty("display", "block", "important");
+    box.style.setProperty("visibility", "visible", "important");
+    box.style.setProperty("opacity", "1", "important");
+    box.style.setProperty("pointer-events", "auto", "important");
+    box.style.setProperty("width", "100%", "important");
+    box.style.setProperty("max-width", "none", "important");
+
+    if (!injectSearchBoxShadowStyle(box)) {
+      let tries = 0;
+      const timer = setInterval(() => {
+        tries += 1;
+        if (injectSearchBoxShadowStyle(box) || tries >= 20) clearInterval(timer);
+      }, 120);
+    }
+
+    if (host.dataset.deckSearchBound === "1") return;
+    host.dataset.deckSearchBound = "1";
+
+    const onFocus = () => {
+      injectSearchBoxShadowStyle(box);
+      requestSteamOsk();
+    };
+
+    host.addEventListener(
+      "focusin",
+      (event) => {
+        if (event.target && (event.target.tagName || "").toLowerCase() === "input") onFocus();
+      },
+      true
+    );
+    host.addEventListener(
+      "pointerup",
+      () => {
+        injectSearchBoxShadowStyle(box);
+        const input = box.shadowRoot?.querySelector("input") || qs("input", box);
+        if (!input) return;
+        try {
+          input.focus({ preventScroll: true });
+        } catch (_) {
+          try {
+            input.focus();
+          } catch (_) {
+            /* noop */
+          }
+        }
+        onFocus();
+      },
+      true
+    );
+  }
+
   function applyDeckLayout() {
     applyViewportMetrics();
     ensureDeckClass();
     hideClutterOnce();
     collapseBrowseOverlay();
     ensureSidebarExpanded();
+    try {
+      ensureDeckSearch();
+    } catch (err) {
+      console.warn("[ytm-deck] ensureDeckSearch failed", err);
+    }
+    try {
+      bindGuideNavTracking();
+      syncPageChrome(false);
+    } catch (err) {
+      console.warn("[ytm-deck] page chrome failed", err);
+    }
     fixChips();
     fixContentOffset();
     fixPlayerBar();
@@ -7179,6 +7837,7 @@ window.YTMDeck = (function () {
     bindPlayerToggle();
     bindPlayerBarOpenGuard();
     bindDeckInput();
+    bindSteamOsk();
     bindQueuePanelTouch();
     bindPlayerModeObservers();
     observeDom();
